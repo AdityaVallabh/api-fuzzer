@@ -29,13 +29,14 @@ func main() {
 	swaggerFile := flag.String("s", swaggerJSONFile, "the swagger.yml file location")
 	algorithm := flag.String("a", "all", "the algorithm - simple, object, path, all")
 	verbose := flag.Bool("v", false, "turn on verbose mode")
-	whitelistFile := flag.String("w", "", "the whitelist.txt file location")
+	whitelistFile := flag.String("w", "", "the whitelisted APIs file location")
+	ignoredPathsFile := flag.String("m", "", "the paths in this file will be ignored")
 
 	flag.Parse()
-	run(meqaPath, swaggerFile, algorithm, verbose, whitelistFile)
+	run(meqaPath, swaggerFile, algorithm, verbose, whitelistFile, ignoredPathsFile)
 }
 
-func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool, whitelistFile *string) {
+func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool, whitelistFile *string, ignoredPathsFile *string) {
 	mqutil.Verbose = *verbose
 
 	swaggerJsonPath := *swaggerFile
@@ -50,13 +51,28 @@ func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool
 			fmt.Printf("Can't load whitelist file at the following location %s", whitelistPath)
 			os.Exit(1)
 		}
-		wl, err := mqswag.GetWhitelistSuites(whitelistPath)
+		wl, err := mqswag.GetListFromFile(whitelistPath)
 		whitelist = wl
 		if err != nil {
 			mqutil.Logger.Printf("Error: %s", err.Error())
 			os.Exit(1)
 		}
 	}
+	pathToFile := *ignoredPathsFile
+	var ignoredPaths map[string]bool
+	if len(pathToFile) > 0 {
+		if fi, err := os.Stat(pathToFile); os.IsNotExist(err) || fi.Mode().IsDir() {
+			fmt.Printf("Can't load ignoredPaths file at the following location %s", pathToFile)
+			os.Exit(1)
+		}
+		paths, err := mqswag.GetListFromFile(pathToFile)
+		ignoredPaths = paths
+		if err != nil {
+			mqutil.Logger.Printf("Error: %s", err.Error())
+			os.Exit(1)
+		}
+	}
+
 	testPlanPath := *meqaPath
 	if fi, err := os.Stat(testPlanPath); os.IsNotExist(err) {
 		err = os.Mkdir(testPlanPath, 0755)
@@ -96,7 +112,7 @@ func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool
 		var testPlan *mqplan.TestPlan
 		switch algo {
 		case algoPath:
-			testPlan, err = mqplan.GeneratePathTestPlan(swagger, dag, whitelist)
+			testPlan, err = mqplan.GeneratePathTestPlan(swagger, dag, whitelist, ignoredPaths)
 		case algoObject:
 			testPlan, err = mqplan.GenerateTestPlan(swagger, dag)
 		default:
