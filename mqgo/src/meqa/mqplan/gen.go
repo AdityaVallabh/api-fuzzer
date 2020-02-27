@@ -240,7 +240,7 @@ func (n PathWeightList) Less(i, j int) bool {
 
 // Go through all the paths in swagger, and generate the tests for all the operations under
 // the path.
-func GeneratePathTestPlan(swagger *mqswag.Swagger, dag *mqswag.DAG, whitelist map[string]bool) (*TestPlan, error) {
+func GeneratePathTestPlan(swagger *mqswag.Swagger, dag *mqswag.DAG, whitelist, ignoredPaths map[string]bool) (*TestPlan, error) {
 	testPlan := &TestPlan{}
 	testPlan.Init(swagger, nil)
 	testPlan.comment = `
@@ -258,7 +258,9 @@ parameters by default.
 			return nil
 		}
 		name := current.GetName()
-
+		if ignoredPaths[name] {
+			return nil
+		}
 		// if the last path element is a {..} path param we remove it. Also remove the ending "/"
 		// because it has no effect.
 		nameArray := strings.Split(name, "/")
