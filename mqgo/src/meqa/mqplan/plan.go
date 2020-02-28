@@ -238,24 +238,31 @@ func (plan *TestPlan) WriteResultToFile(path string) error {
 
 func (plan *TestPlan) LogErrors() {
 	fmt.Print(mqutil.AQUA)
-	fmt.Printf("-----------------------------Errors----------------------------------\n")
+	fmt.Printf("------------------------SchemaMismatches-----------------------------\n")
 	fmt.Print(mqutil.END)
 	for _, t := range plan.resultList {
-		if t.responseError != nil || t.schemaError != nil {
+		if t.schemaError != nil {
 			fmt.Print(mqutil.AQUA)
 			fmt.Println("--------")
 			fmt.Printf("%v: %v\n", t.Path, t.Name)
 			fmt.Print(mqutil.END)
+			fmt.Print(mqutil.YELLOW)
+			fmt.Println(t.schemaError.Error())
+			fmt.Print(mqutil.END)
 		}
+	}
+	fmt.Print(mqutil.AQUA)
+	fmt.Printf("-----------------------------Errors----------------------------------\n")
+	fmt.Print(mqutil.END)
+	for _, t := range plan.resultList {
 		if t.responseError != nil {
+			fmt.Print(mqutil.AQUA)
+			fmt.Println("--------")
+			fmt.Printf("%v: %v\n", t.Path, t.Name)
+			fmt.Print(mqutil.END)
 			fmt.Print(mqutil.RED)
 			fmt.Println("Response Status Code:", t.resp.StatusCode())
 			fmt.Println(t.responseError)
-			fmt.Print(mqutil.END)
-		}
-		if t.schemaError != nil {
-			fmt.Print(mqutil.YELLOW)
-			fmt.Println(t.schemaError.Error())
 			fmt.Print(mqutil.END)
 		}
 	}
