@@ -238,24 +238,31 @@ func (plan *TestPlan) WriteResultToFile(path string) error {
 
 func (plan *TestPlan) LogErrors() {
 	fmt.Print(mqutil.AQUA)
-	fmt.Printf("-----------------------------Errors----------------------------------\n")
+	fmt.Printf("------------------------SchemaMismatches-----------------------------\n")
 	fmt.Print(mqutil.END)
 	for _, t := range plan.resultList {
-		if t.responseError != nil || t.schemaError != nil {
+		if t.schemaError != nil {
 			fmt.Print(mqutil.AQUA)
 			fmt.Println("--------")
 			fmt.Printf("%v: %v\n", t.Path, t.Name)
 			fmt.Print(mqutil.END)
+			fmt.Print(mqutil.YELLOW)
+			fmt.Println(t.schemaError.Error())
+			fmt.Print(mqutil.END)
 		}
+	}
+	fmt.Print(mqutil.AQUA)
+	fmt.Printf("-----------------------------Errors----------------------------------\n")
+	fmt.Print(mqutil.END)
+	for _, t := range plan.resultList {
 		if t.responseError != nil {
+			fmt.Print(mqutil.AQUA)
+			fmt.Println("--------")
+			fmt.Printf("%v: %v\n", t.Path, t.Name)
+			fmt.Print(mqutil.END)
 			fmt.Print(mqutil.RED)
 			fmt.Println("Response Status Code:", t.resp.StatusCode())
 			fmt.Println(t.responseError)
-			fmt.Print(mqutil.END)
-		}
-		if t.schemaError != nil {
-			fmt.Print(mqutil.YELLOW)
-			// fmt.Println(t.schemaError.Error())
 			fmt.Print(mqutil.END)
 		}
 	}
@@ -269,8 +276,6 @@ func (plan *TestPlan) PrintSummary() {
 	fmt.Printf("%v: %v\n", mqutil.Passed, plan.ResultCounts[mqutil.Passed])
 	fmt.Print(mqutil.RED)
 	fmt.Printf("%v: %v\n", mqutil.Failed, plan.ResultCounts[mqutil.Failed])
-	fmt.Print(mqutil.BLUE)
-	fmt.Printf("%v: %v\n", mqutil.Skipped, plan.ResultCounts[mqutil.Skipped])
 	fmt.Print(mqutil.YELLOW)
 	fmt.Printf("%v: %v\n", mqutil.SchemaMismatch, plan.ResultCounts[mqutil.SchemaMismatch])
 	fmt.Print(mqutil.AQUA)
@@ -336,7 +341,6 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		}
 		if err != nil {
 			resultCounts[mqutil.Failed]++
-			resultCounts[mqutil.Skipped] = len(tc.Tests) - resultCounts[mqutil.Passed] - 1
 			return resultCounts, err
 		}
 		resultCounts[mqutil.Passed]++
