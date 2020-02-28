@@ -301,6 +301,7 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 	}()
 	resultCounts[mqutil.Total] = len(tc.Tests)
 	resultCounts[mqutil.Failed] = 0
+	var tcErr error
 	for _, test := range tc.Tests {
 		if len(test.Ref) != 0 {
 			test.Strict = tc.Strict
@@ -336,12 +337,14 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		}
 		if err != nil {
 			resultCounts[mqutil.Failed]++
-			resultCounts[mqutil.Skipped] = len(tc.Tests) - resultCounts[mqutil.Passed] - 1
-			return resultCounts, err
+			if tcErr == nil {
+				tcErr = err
+			}
+			continue
 		}
 		resultCounts[mqutil.Passed]++
 	}
-	return resultCounts, nil
+	return resultCounts, tcErr
 }
 
 // The current global TestPlan
