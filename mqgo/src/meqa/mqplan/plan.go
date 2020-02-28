@@ -276,8 +276,6 @@ func (plan *TestPlan) PrintSummary() {
 	fmt.Printf("%v: %v\n", mqutil.Passed, plan.ResultCounts[mqutil.Passed])
 	fmt.Print(mqutil.RED)
 	fmt.Printf("%v: %v\n", mqutil.Failed, plan.ResultCounts[mqutil.Failed])
-	fmt.Print(mqutil.BLUE)
-	fmt.Printf("%v: %v\n", mqutil.Skipped, plan.ResultCounts[mqutil.Skipped])
 	fmt.Print(mqutil.YELLOW)
 	fmt.Printf("%v: %v\n", mqutil.SchemaMismatch, plan.ResultCounts[mqutil.SchemaMismatch])
 	fmt.Print(mqutil.AQUA)
@@ -343,7 +341,6 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		}
 		if err != nil {
 			resultCounts[mqutil.Failed]++
-			resultCounts[mqutil.Skipped] = len(tc.Tests) - resultCounts[mqutil.Passed] - 1
 			return resultCounts, err
 		}
 		resultCounts[mqutil.Passed]++
