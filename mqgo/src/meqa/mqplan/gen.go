@@ -186,7 +186,7 @@ func GeneratePathTestSuite(operations mqswag.NodeList, plan *TestPlan) {
 		testId++
 		currentTest := CreateTestFromOp(o, testId)
 		testSuite.Tests = append(testSuite.Tests, currentTest)
-		if OperationMatches(o, mqswag.MethodPost) {
+		if OperationMatches(o, mqswag.MethodPost) && !strings.Contains(o.GetName(), idTag) {
 			createTest = currentTest
 		} else if strings.Contains(o.GetName(), idTag) {
 			currentTest.PathParams = make(map[string]interface{})
@@ -261,16 +261,16 @@ parameters by default.
 		if ignoredPaths[name] {
 			return nil
 		}
-		// if the last path element is a {..} path param we remove it. Also remove the ending "/"
+		// if {..} is in the path we remove the entire suffix. Also remove the ending "/"
 		// because it has no effect.
+
+		idx := strings.Index(name, "{")
+		if idx >= 0 {
+			name = name[:idx]
+		}
 		nameArray := strings.Split(name, "/")
 		if len(nameArray) > 0 && len(nameArray[len(nameArray)-1]) == 0 {
 			nameArray = nameArray[:len(nameArray)-1]
-		}
-		if len(nameArray) > 0 {
-			if last := nameArray[len(nameArray)-1]; len(last) > 0 && last[0] == '{' && last[len(last)-1] == '}' {
-				nameArray = nameArray[:len(nameArray)-1]
-			}
 		}
 		name = strings.Join(nameArray, "/")
 
