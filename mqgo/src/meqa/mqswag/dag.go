@@ -143,11 +143,37 @@ func (n ByMethodPriority) Swap(i, j int) {
 }
 
 func (n ByMethodPriority) Less(i, j int) bool {
+	// Check if path is for an object
+	si := strings.Contains(n[i].GetName(), "{")
+	sj := strings.Contains(n[j].GetName(), "{")
+
+	// Check if {..} is the last parameter.
+	// Lower number indicates it's a CRUD operation (ex. /users/{id} or /users/{id})
+	// Higher number indicates it's an additional endpoint (ex. /users/{id}/resetPassword)
+	ti := len(n[i].GetName()) - strings.Index(n[i].GetName(), "}") - 1
+	tj := len(n[j].GetName()) - strings.Index(n[j].GetName(), "}") - 1
+
 	mi := methodWeight[n[i].GetMethod()]
 	mj := methodWeight[n[j].GetMethod()]
-	pi := n[i].Priority
-	pj := n[j].Priority
-	return mi < mj || (mi == mj && pi < pj) || (mi == mj && pi == pj && n[i].Name < n[j].Name)
+
+	// Ops with {..} should be executed later
+	if si != sj {
+		return sj
+	}
+	// If both have {..}
+	if si && sj {
+		// DELETE should always be executed in the end
+		if n[i].GetMethod() == "delete" {
+			return false
+		}
+		if n[j].GetMethod() == "delete" {
+			return true
+		}
+		// CRUD (except DELETE) should be prioritized
+		return ti < tj || (ti == tj && mi < mj) || (ti == tj && mi == mj && n[i].Name < n[j].Name)
+	}
+	// Default order
+	return mi < mj || (mi == mj && n[i].Name < n[j].Name)
 }
 
 // We expect a single thread on the server would handle the DAG creation and traversing. So no mutex for now.
