@@ -1122,9 +1122,9 @@ func (t *Test) generateByType(s *spec.Schema, prefix string, parentTag *mqswag.M
 	return nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("unrecognized type: %s", s.Type))
 }
 
-// RandomTime generate a random time in the range of [t - r, t).
+// RandomTime generate a random time in the range of [t, t + r).
 func RandomTime(t time.Time, r time.Duration) time.Time {
-	return t.Add(-time.Duration(float64(r) * rand.Float64()))
+	return t.Add(time.Duration(float64(r) * rand.Float64()))
 }
 
 // TODO we need to make it context aware. Based on different contexts we should generate different
