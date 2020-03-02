@@ -7,7 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/go-openapi/spec"
+	// "github.com/go-openapi/spec"
+
+	spec "github.com/getkin/kin-openapi/openapi3"
 )
 
 func createInitTask() *Test {
@@ -55,7 +57,7 @@ func CreateTestFromOp(opNode *mqswag.DAGNode, testId int) *Test {
 	t := &Test{}
 	t.Path = opNode.GetName()
 	t.Method = opNode.GetMethod()
-	opId := op.ID
+	opId := op.OperationID
 	if len(opId) == 0 {
 		opId = GetLastPathElement(t.Path)
 	}

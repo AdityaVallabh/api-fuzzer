@@ -2,17 +2,19 @@
 package mqswag
 
 import (
-	"fmt"
 	"io/ioutil"
 	"meqa/mqutil"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
+	spec "github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-openapi/loads"
 	"github.com/go-openapi/loads/fmts"
-	"github.com/go-openapi/spec"
+
+	// "github.com/go-openapi/spec"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -155,7 +157,8 @@ func CreateSwaggerFromURL(path string, meqaPath string) (*Swagger, error) {
 		swaggerJsonPath = tmpPath
 	}
 
-	specDoc, err := loads.Spec(swaggerJsonPath)
+	// specDoc, err := loads.Spec(swaggerJsonPath)
+	spec, err := spec.NewSwaggerLoader().LoadSwaggerFromFile(swaggerJsonPath)
 	if err != nil {
 		mqutil.Logger.Printf("Can't open the following file: %s", path)
 		mqutil.Logger.Println(err.Error())
@@ -164,7 +167,8 @@ func CreateSwaggerFromURL(path string, meqaPath string) (*Swagger, error) {
 
 	// log.Println("Would be serving:", specDoc.Spec().Info.Title)
 
-	return (*Swagger)(specDoc.Spec()), nil
+	// return (*Swagger)(specDoc.Spec()), nil
+	return (*Swagger)(spec), nil
 }
 
 func GetListFromFile(path string) (map[string]bool, error) {
@@ -182,70 +186,71 @@ func GetListFromFile(path string) (map[string]bool, error) {
 }
 
 // FindSchemaByName finds the schema defined by name in the swagger document.
-func (swagger *Swagger) FindSchemaByName(name string) *Schema {
-	schema, ok := swagger.Definitions[name]
+func (swagger *Swagger) FindSchemaByName(name string) SchemaRef {
+	schema, ok := swagger.Components.Schemas[name]
 	if !ok {
-		return nil
+		return SchemaRef{}
 	}
-	return (*Schema)(&schema)
+	return (SchemaRef)(*schema)
 }
 
 // GetReferredSchema returns what the schema refers to, and nil if it doesn't refer to any.
-func (swagger *Swagger) GetReferredSchema(schema *Schema) (string, *Schema, error) {
-	if schema.Ref.GetURL() == nil {
-		return "", nil, nil
+func (swagger *Swagger) GetReferredSchema(schema SchemaRef) (string, SchemaRef, error) {
+	// if schema.Ref.GetURL() == nil {
+	// 	return "", nil, nil
+	// }
+	// tokens := schema.Ref.GetPointer().DecodedTokens()
+	// if len(tokens) == 0 {
+	// 	return "", nil, nil
+	// }
+	// if len(tokens) != 2 || tokens[0] != "definitions" {
+	// 	return "", nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Invalid reference: %s", schema.Ref.GetURL()))
+	// }
+	name := schema.Ref[strings.LastIndex(schema.Ref, "/")+1:]
+	referredSchema := swagger.FindSchemaByName(name)
+	if referredSchema.Value == nil {
+		return "", SchemaRef{}, nil
 	}
-	tokens := schema.Ref.GetPointer().DecodedTokens()
-	if len(tokens) == 0 {
-		return "", nil, nil
-	}
-	if len(tokens) != 2 || tokens[0] != "definitions" {
-		return "", nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Invalid reference: %s", schema.Ref.GetURL()))
-	}
-	referredSchema := swagger.FindSchemaByName(tokens[1])
-	if referredSchema == nil {
-		return "", nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Reference object not found: %s", schema.Ref.GetURL()))
-	}
-	return tokens[1], referredSchema, nil
+	return name, referredSchema, nil
 }
 
 // GetSchemaRootType gets the real object type fo the specified schema. It only returns meaningful
 // data for object and array of object type of parameters. If the parameter is a basic type it returns
 // nil
-func (swagger *Swagger) GetSchemaRootType(schema *Schema, parentTag *MeqaTag) (*MeqaTag, *Schema) {
-	tag := GetMeqaTag(schema.Description)
+func (swagger *Swagger) GetSchemaRootType(schema SchemaRef, parentTag *MeqaTag) (*MeqaTag, SchemaRef) {
+	tag := GetMeqaTag(schema.Value.Description)
 	if tag == nil {
 		tag = parentTag
 	}
-	referenceName, referredSchema, err := swagger.GetReferredSchema((*Schema)(schema))
+	referenceName, referredSchema, err := swagger.GetReferredSchema((SchemaRef)(schema))
 	if err != nil {
 		mqutil.Logger.Print(err)
-		return nil, nil
+		return nil, SchemaRef{}
 	}
-	if referredSchema != nil {
+	if referredSchema.Value != nil {
 		if tag == nil {
 			tag = &MeqaTag{referenceName, "", "", 0}
 		}
 		return swagger.GetSchemaRootType(referredSchema, tag)
 	}
-	if len(schema.Enum) != 0 {
-		return nil, nil
+	if len(schema.Value.Enum) != 0 {
+		return nil, SchemaRef{}
 	}
-	if len(schema.Type) == 0 {
-		return nil, nil
+	if len(schema.Value.Type) == 0 {
+		return nil, SchemaRef{}
 	}
-	if schema.Type.Contains(gojsonschema.TYPE_ARRAY) {
-		var itemSchema *spec.Schema
-		if len(schema.Items.Schemas) != 0 {
-			itemSchema = &(schema.Items.Schemas[0])
-		} else {
-			itemSchema = schema.Items.Schema
-		}
-		return swagger.GetSchemaRootType((*Schema)(itemSchema), tag)
-	} else if schema.Type.Contains(gojsonschema.TYPE_OBJECT) {
+	if strings.Contains(schema.Value.Type, gojsonschema.TYPE_ARRAY) {
+		var itemSchema SchemaRef
+		// if len(schema.Items.Schemas) != 0 {
+		// 	itemSchema = &(schema.Items.Schemas[0])
+		// } else {
+		itemSchema = (SchemaRef)(*schema.Value.Items)
+		// }
+		return swagger.GetSchemaRootType((SchemaRef)(itemSchema), tag)
+	} else if strings.Contains(schema.Value.Type, gojsonschema.TYPE_OBJECT) {
 		return tag, schema
 	}
-	return nil, nil
+	return nil, SchemaRef{}
 }
 
 func GetDAGName(t string, n string, m string) string {
@@ -292,9 +297,9 @@ func (dep *Dependencies) CollectFromTag(tag *MeqaTag) string {
 
 // collects all the objects referred to by the schema. All the object names are put into
 // the specified map.
-func CollectSchemaDependencies(schema *Schema, swagger *Swagger, dag *DAG, dep *Dependencies) error {
-	iterFunc := func(swagger *Swagger, schemaName string, schema *Schema, context interface{}) error {
-		collected := dep.CollectFromTag(GetMeqaTag(schema.Description))
+func CollectSchemaDependencies(schema SchemaRef, swagger *Swagger, dag *DAG, dep *Dependencies) error {
+	iterFunc := func(swagger *Swagger, schemaName string, schema SchemaRef, context interface{}) error {
+		collected := dep.CollectFromTag(GetMeqaTag(schema.Value.Description))
 		if len(collected) == 0 && len(schemaName) > 0 {
 			dep.Default[schemaName] = 1
 		}
@@ -305,31 +310,31 @@ func CollectSchemaDependencies(schema *Schema, swagger *Swagger, dag *DAG, dep *
 	return schema.Iterate(iterFunc, dep, swagger, false)
 }
 
-func CollectParamDependencies(params []spec.Parameter, swagger *Swagger, dag *DAG, dep *Dependencies) error {
+func CollectParamDependencies(params spec.Parameters, swagger *Swagger, dag *DAG, dep *Dependencies) error {
 	defer func() { dep.Default = nil }()
 
 	// the list of objects this method is producing that are specified through refs. We need to go through
 	// them to find what objects they depend on - those objects will be out inputs (consumes)
 	var inputsNeeded []string
 	for _, param := range params {
-		if dep.IsPost && (param.In == "body" || param.In == "formData") {
+		if dep.IsPost && (param.Value.In == "body" || param.Value.In == "formData") {
 			dep.Default = dep.Produces
 		} else {
 			dep.Default = dep.Consumes
 		}
-		collected := dep.CollectFromTag(GetMeqaTag(param.Description))
+		collected := dep.CollectFromTag(GetMeqaTag(param.Value.Description))
 
-		if param.Schema != nil {
-			var schema *Schema
-			schema = (*Schema)(param.Schema)
+		if param.Value.Schema.Value != nil {
+			var schema SchemaRef
+			schema = (SchemaRef)(*param.Value.Schema)
 			if len(collected) == 0 {
-				collected = dep.CollectFromTag(GetMeqaTag(schema.Description))
+				collected = dep.CollectFromTag(GetMeqaTag(schema.Value.Description))
 			}
 			if len(collected) > 0 {
 				// Only try to collect addition info from the object schema if the object is not
 				// inlined in the request. If it's inlined the we should continue to collect the
 				// the input parameters from the schema itself.
-				if !schema.Type.Contains(gojsonschema.TYPE_OBJECT) {
+				if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_OBJECT) {
 					inputsNeeded = append(inputsNeeded, collected)
 					continue
 				}
@@ -370,15 +375,18 @@ func CollectResponseDependencies(responses *spec.Responses, swagger *Swagger, da
 	}
 	dep.Default = make(map[string]interface{}) // We don't assume by default anything so we throw Default away.
 	defer func() { dep.Default = nil }()
-	for respCode, respSpec := range responses.StatusCodeResponses {
-		collected := dep.CollectFromTag(GetMeqaTag(respSpec.Description))
+	for respCodeS, respSpec := range *responses {
+		respCode, _ := strconv.Atoi(respCodeS)
+		collected := dep.CollectFromTag(GetMeqaTag(respSpec.Value.Description))
 		if len(collected) > 0 {
 			continue
 		}
-		if respSpec.Schema != nil && respCode >= 200 && respCode < 300 {
-			err := CollectSchemaDependencies((*Schema)(respSpec.Schema), swagger, dag, dep)
-			if err != nil {
-				return err
+		if respSpec.Value != nil && respCode >= 200 && respCode < 300 {
+			if respSpec.Value.Content != nil {
+				err := CollectSchemaDependencies((SchemaRef)(*respSpec.Value.Content["application/json"].Schema), swagger, dag, dep)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -396,16 +404,13 @@ var methodWeight = map[string]int{
 }
 
 func AddOperation(pathName string, pathItem *spec.PathItem, method string, swagger *Swagger, dag *DAG, setPriority bool) error {
-	opInterface, err := pathItem.JSONLookup(method)
-	if err != nil {
-		return err
-	}
-	op := opInterface.(*spec.Operation)
+	op := pathItem.GetOperation(method)
 	if op == nil {
 		return nil
 	}
 
 	var node *DAGNode
+	var err error
 	if setPriority {
 		node = dag.NameMap[GetDAGName(TypeOp, pathName, method)]
 	} else {
@@ -444,7 +449,7 @@ func AddOperation(pathName string, pathItem *spec.PathItem, method string, swagg
 		return err
 	}
 
-	err = CollectResponseDependencies(op.Responses, swagger, dag, dep)
+	err = CollectResponseDependencies(&op.Responses, swagger, dag, dep)
 	if err != nil {
 		return err
 	}
@@ -457,10 +462,10 @@ func AddOperation(pathName string, pathItem *spec.PathItem, method string, swagg
 				node.Priority = paramNode.Weight
 			}
 		}
-		countParams := func(parameters []spec.Parameter) int {
+		countParams := func(parameters spec.Parameters) int {
 			numParams := 0
 			for _, p := range parameters {
-				if p.In == "path" {
+				if p.Value.In == "path" {
 					numParams++
 				}
 			}
@@ -498,41 +503,41 @@ func AddOperation(pathName string, pathItem *spec.PathItem, method string, swagg
 
 func (swagger *Swagger) AddToDAG(dag *DAG) error {
 	// Add all definitions
-	for name, schema := range swagger.Definitions {
-		schemaCopy := Schema(schema) // must make a copy first, the schema variable is reused in the loop scope
+	for name, schema := range swagger.Components.Schemas {
+		schemaCopy := Schema(*schema.Value) // must make a copy first, the schema variable is reused in the loop scope
 		err := AddDef(name, &schemaCopy, swagger, dag)
 		if err != nil {
 			return err
 		}
 	}
 	// Add all children
-	for name, schema := range swagger.Definitions {
+	for name, schema := range swagger.Components.Schemas {
 		node := dag.NameMap[GetDAGName(TypeDef, name, "")]
 		collections := make(map[string]interface{})
-		collectInner := func(swagger *Swagger, schemaName string, schema *Schema, context interface{}) error {
+		collectInner := func(swagger *Swagger, schemaName string, schema SchemaRef, context interface{}) error {
 			if len(schemaName) > 0 && schemaName != name {
 				collections[schemaName] = 1
 			}
 			return nil
 		}
-		((*Schema)(&schema)).Iterate(collectInner, nil, swagger, false)
+		((SchemaRef)(*schema)).Iterate(collectInner, nil, swagger, false)
 		// The inner fields are the parents. The child depends on parents.
 		node.AddDependencies(dag, collections, false)
 	}
 
 	// Add all operations
-	for pathName, pathItem := range swagger.Paths.Paths {
+	for pathName, pathItem := range swagger.Paths {
 		for _, method := range MethodAll {
-			err := AddOperation(pathName, &pathItem, method, swagger, dag, false)
+			err := AddOperation(pathName, pathItem, method, swagger, dag, false)
 			if err != nil {
 				return err
 			}
 		}
 	}
 	// set priorities. This can only be done after the above, where all weights for all operations are set.
-	for pathName, pathItem := range swagger.Paths.Paths {
+	for pathName, pathItem := range swagger.Paths {
 		for _, method := range MethodAll {
-			err := AddOperation(pathName, &pathItem, method, swagger, dag, true)
+			err := AddOperation(pathName, pathItem, method, swagger, dag, true)
 			if err != nil {
 				return err
 			}
