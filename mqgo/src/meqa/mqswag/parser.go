@@ -2,6 +2,7 @@
 package mqswag
 
 import (
+	"fmt"
 	"io/ioutil"
 	"meqa/mqutil"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"github.com/go-openapi/loads"
 	"github.com/go-openapi/loads/fmts"
 
-	// "github.com/go-openapi/spec"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -34,6 +34,10 @@ const (
 	MethodHead    = "head"
 	MethodPatch   = "patch"
 	MethodOptions = "options"
+)
+
+const (
+	JsonResponse = "application/json"
 )
 
 var MethodAll []string = []string{MethodGet, MethodPut, MethodPost, MethodDelete, MethodHead, MethodPatch, MethodOptions}
@@ -196,22 +200,18 @@ func (swagger *Swagger) FindSchemaByName(name string) SchemaRef {
 
 // GetReferredSchema returns what the schema refers to, and nil if it doesn't refer to any.
 func (swagger *Swagger) GetReferredSchema(schema SchemaRef) (string, SchemaRef, error) {
-	// if schema.Ref.GetURL() == nil {
-	// 	return "", nil, nil
-	// }
-	// tokens := schema.Ref.GetPointer().DecodedTokens()
-	// if len(tokens) == 0 {
-	// 	return "", nil, nil
-	// }
-	// if len(tokens) != 2 || tokens[0] != "definitions" {
-	// 	return "", nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Invalid reference: %s", schema.Ref.GetURL()))
-	// }
-	name := schema.Ref[strings.LastIndex(schema.Ref, "/")+1:]
-	referredSchema := swagger.FindSchemaByName(name)
-	if referredSchema.Value == nil {
+	tokens := strings.Split(schema.Ref, "/")
+	if tokens[0] == "" {
 		return "", SchemaRef{}, nil
 	}
-	return name, referredSchema, nil
+	if len(tokens) != 4 || tokens[1] != "components" || tokens[2] != "schemas" {
+		return "", SchemaRef{}, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Invalid reference: %s", schema.Ref))
+	}
+	referredSchema := swagger.FindSchemaByName(tokens[3])
+	if referredSchema.Value == nil {
+		return "", SchemaRef{}, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Reference object not found: %s", schema.Ref))
+	}
+	return tokens[3], referredSchema, nil
 }
 
 // GetSchemaRootType gets the real object type fo the specified schema. It only returns meaningful
@@ -222,7 +222,7 @@ func (swagger *Swagger) GetSchemaRootType(schema SchemaRef, parentTag *MeqaTag) 
 	if tag == nil {
 		tag = parentTag
 	}
-	referenceName, referredSchema, err := swagger.GetReferredSchema((SchemaRef)(schema))
+	referenceName, referredSchema, err := swagger.GetReferredSchema(schema)
 	if err != nil {
 		mqutil.Logger.Print(err)
 		return nil, SchemaRef{}
@@ -240,13 +240,8 @@ func (swagger *Swagger) GetSchemaRootType(schema SchemaRef, parentTag *MeqaTag) 
 		return nil, SchemaRef{}
 	}
 	if strings.Contains(schema.Value.Type, gojsonschema.TYPE_ARRAY) {
-		var itemSchema SchemaRef
-		// if len(schema.Items.Schemas) != 0 {
-		// 	itemSchema = &(schema.Items.Schemas[0])
-		// } else {
-		itemSchema = (SchemaRef)(*schema.Value.Items)
-		// }
-		return swagger.GetSchemaRootType((SchemaRef)(itemSchema), tag)
+		itemSchema := (SchemaRef)(*schema.Value.Items)
+		return swagger.GetSchemaRootType(itemSchema, tag)
 	} else if strings.Contains(schema.Value.Type, gojsonschema.TYPE_OBJECT) {
 		return tag, schema
 	}
@@ -325,8 +320,7 @@ func CollectParamDependencies(params spec.Parameters, swagger *Swagger, dag *DAG
 		collected := dep.CollectFromTag(GetMeqaTag(param.Value.Description))
 
 		if param.Value.Schema.Value != nil {
-			var schema SchemaRef
-			schema = (SchemaRef)(*param.Value.Schema)
+			schema := (SchemaRef)(*param.Value.Schema)
 			if len(collected) == 0 {
 				collected = dep.CollectFromTag(GetMeqaTag(schema.Value.Description))
 			}
@@ -383,7 +377,7 @@ func CollectResponseDependencies(responses *spec.Responses, swagger *Swagger, da
 		}
 		if respSpec.Value != nil && respCode >= 200 && respCode < 300 {
 			if respSpec.Value.Content != nil {
-				err := CollectSchemaDependencies((SchemaRef)(*respSpec.Value.Content["application/json"].Schema), swagger, dag, dep)
+				err := CollectSchemaDependencies((SchemaRef)(*respSpec.Value.Content[JsonResponse].Schema), swagger, dag, dep)
 				if err != nil {
 					return err
 				}

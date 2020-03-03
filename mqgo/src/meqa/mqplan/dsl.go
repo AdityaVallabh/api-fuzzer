@@ -207,7 +207,7 @@ func (t *Test) AddBasicComparison(tag *mqswag.MeqaTag, paramSpec *spec.Parameter
 	}
 	// Need to create a new compare object.
 	comp = &Comparison{}
-	comp.schema = (mqswag.SchemaRef)(t.db.Swagger.FindSchemaByName(tag.Class))
+	comp.schema = t.db.Swagger.FindSchemaByName(tag.Class)
 	comp.SetForOp(op, tag.Property, data)
 	t.comparisons[tag.Class] = append(t.comparisons[tag.Class], comp)
 }
@@ -436,8 +436,8 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 
 	respBody := resp.Body()
 	var respSchema mqswag.SchemaRef
-	if respSpec.Content != nil && respSpec.Content["application/json"].Schema != nil {
-		respSchema = (mqswag.SchemaRef)(*(respSpec.Content["application/json"].Schema))
+	if respSpec.Content != nil && respSpec.Content[mqswag.JsonResponse] != nil && respSpec.Content[mqswag.JsonResponse].Schema != nil {
+		respSchema = (mqswag.SchemaRef)(*(respSpec.Content[mqswag.JsonResponse].Schema))
 	}
 	var resultObj interface{}
 	if len(respBody) > 0 {
@@ -509,7 +509,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	objMatchesSchema := false
 	if resultObj != nil && respSchema.Value != nil {
 		fmt.Printf("... verifying response against openapi schema. ")
-		err := (respSchema).Parses("", resultObj, collection, true, t.db.Swagger)
+		err := respSchema.Parses("", resultObj, collection, true, t.db.Swagger)
 		if err != nil {
 			fmt.Printf("%v\n", yellowFail)
 			objMatchesSchema = true
@@ -639,7 +639,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 		for className, resultArray := range collection {
 			objTag := mqswag.MeqaTag{className, "", "", 0}
 			for _, c := range resultArray {
-				t.AddObjectComparison(&objTag, c.(map[string]interface{}), (mqswag.SchemaRef)(t.db.GetSchema(className)))
+				t.AddObjectComparison(&objTag, c.(map[string]interface{}), t.db.GetSchema(className))
 			}
 		}
 	}
@@ -913,49 +913,27 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 	var genParam interface{}
 	if t.op.RequestBody != nil {
 		var bodyMap map[string]interface{}
+		bodyIsMap := false
 		if t.BodyParams != nil {
-			bodyMap, _ = t.BodyParams.(map[string]interface{})
+			bodyMap, bodyIsMap = t.BodyParams.(map[string]interface{})
 		}
-		bodyParam := &spec.Parameter{
-			Schema: t.op.RequestBody.Value.Content["application/json"].Schema}
-		genParam, err = t.GenerateParameter(bodyParam, t.db)
-		if err != nil {
-			return err
-		}
-		if genMap, genIsMap := genParam.(map[string]interface{}); genIsMap {
-			if tcBodyMap, tcIsMap := tc.BodyParams.(map[string]interface{}); tcIsMap {
-				bodyMap = mqutil.MapAdd(bodyMap, tcBodyMap)
-			}
-			t.BodyParams = mqutil.MapReplace(genMap, bodyMap)
-		} else {
-			t.BodyParams = genParam
-		}
-	}
-	for _, params := range t.op.Parameters {
-		fmt.Printf("        %s (in %s): ", params.Value.Name, params.Value.In)
-		if params.Value.In == "body" {
-			var bodyMap map[string]interface{}
-			bodyIsMap := false
-			if t.BodyParams != nil {
-				bodyMap, bodyIsMap = t.BodyParams.(map[string]interface{})
-			}
-			if t.BodyParams != nil && !bodyIsMap {
-				// Body is not map, we use it directly.
-				paramTag, schema := t.db.Swagger.GetSchemaRootType((mqswag.SchemaRef)(*params.Value.Schema), mqswag.GetMeqaTag(params.Value.Description))
-				if schema.Value != nil && paramTag != nil {
-					objarray, _ := t.BodyParams.([]interface{})
-					for _, obj := range objarray {
-						objMap, ok := obj.(map[string]interface{})
-						if ok {
-							t.AddObjectComparison(paramTag, objMap, schema)
-						}
+		if t.BodyParams != nil && !bodyIsMap {
+			// Body is not map, we use it directly.
+			bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
+			paramTag, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
+			if schema.Value != nil && paramTag != nil {
+				objarray, _ := t.BodyParams.([]interface{})
+				for _, obj := range objarray {
+					objMap, ok := obj.(map[string]interface{})
+					if ok {
+						t.AddObjectComparison(paramTag, objMap, schema)
 					}
 				}
-				fmt.Print("provided\n")
-				continue
 			}
-			// Body is map, we generate parameters, then use the value in the original t and tc's bodyParam where possible
-			genParam, err = t.GenerateParameter(params.Value, t.db)
+			fmt.Print("provided\n")
+		} else {
+			bodyParam := &spec.Parameter{Schema: t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema}
+			genParam, err = t.GenerateParameter(bodyParam, t.db)
 			if err != nil {
 				return err
 			}
@@ -967,51 +945,53 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 			} else {
 				t.BodyParams = genParam
 			}
-		} else {
-			switch params.Value.In {
-			case "path":
-				if t.PathParams == nil {
-					t.PathParams = make(map[string]interface{})
-				}
-				paramsMap = t.PathParams
-				globalParamsMap = tc.PathParams
-			case "query":
-				if t.QueryParams == nil {
-					t.QueryParams = make(map[string]interface{})
-				}
-				paramsMap = t.QueryParams
-				globalParamsMap = tc.QueryParams
-			case "header":
-				if t.HeaderParams == nil {
-					t.HeaderParams = make(map[string]interface{})
-				}
-				paramsMap = t.HeaderParams
-				globalParamsMap = tc.HeaderParams
-			case "formData":
-				if t.FormParams == nil {
-					t.FormParams = make(map[string]interface{})
-				}
-				paramsMap = t.FormParams
-				globalParamsMap = tc.FormParams
+		}
+	}
+	for _, params := range t.op.Parameters {
+		fmt.Printf("        %s (in %s): ", params.Value.Name, params.Value.In)
+		switch params.Value.In {
+		case "path":
+			if t.PathParams == nil {
+				t.PathParams = make(map[string]interface{})
 			}
+			paramsMap = t.PathParams
+			globalParamsMap = tc.PathParams
+		case "query":
+			if t.QueryParams == nil {
+				t.QueryParams = make(map[string]interface{})
+			}
+			paramsMap = t.QueryParams
+			globalParamsMap = tc.QueryParams
+		case "header":
+			if t.HeaderParams == nil {
+				t.HeaderParams = make(map[string]interface{})
+			}
+			paramsMap = t.HeaderParams
+			globalParamsMap = tc.HeaderParams
+		case "formData":
+			if t.FormParams == nil {
+				t.FormParams = make(map[string]interface{})
+			}
+			paramsMap = t.FormParams
+			globalParamsMap = tc.FormParams
+		}
 
-			// If there is a parameter passed in, just use it. Otherwise generate one.
-			_, inLocal := paramsMap[params.Value.Name]
-			_, inGlobal := globalParamsMap[params.Value.Name]
-			if !inLocal && inGlobal {
-				paramsMap[params.Value.Name] = globalParamsMap[params.Value.Name]
-			}
-			if _, ok := paramsMap[params.Value.Name]; ok {
-				t.AddBasicComparison(mqswag.GetMeqaTag(params.Value.Description), params.Value, paramsMap[params.Value.Name])
-				fmt.Print("provided\n")
-				continue
-			}
-			genParam, err = t.GenerateParameter(params.Value, t.db)
-			paramsMap[params.Value.Name] = genParam
+		// If there is a parameter passed in, just use it. Otherwise generate one.
+		_, inLocal := paramsMap[params.Value.Name]
+		_, inGlobal := globalParamsMap[params.Value.Name]
+		if !inLocal && inGlobal {
+			paramsMap[params.Value.Name] = globalParamsMap[params.Value.Name]
 		}
-		if err != nil {
-			return err
+		if _, ok := paramsMap[params.Value.Name]; ok {
+			t.AddBasicComparison(mqswag.GetMeqaTag(params.Value.Description), params.Value, paramsMap[params.Value.Name])
+			fmt.Print("provided\n")
+			continue
 		}
+		genParam, err = t.GenerateParameter(params.Value, t.db)
+		paramsMap[params.Value.Name] = genParam
+	}
+	if err != nil {
+		return err
 	}
 	paramMaps := []*map[string]interface{}{&t.PathParams, &t.QueryParams, &t.HeaderParams, &t.FormParams}
 	for _, m := range paramMaps {
@@ -1070,7 +1050,7 @@ func (t *Test) GenerateParameter(paramSpec *spec.Parameter, db *mqswag.DB) (inte
 	}
 
 	// construct a full schema from simple ones
-	schema := (mqswag.SchemaRef)(mqswag.CreateSchemaFromSimple((mqswag.SchemaRef)(*paramSpec.Schema), (mqswag.SchemaRef)(*paramSpec.Schema)))
+	schema := (mqswag.SchemaRef)(*paramSpec.Schema)
 	if paramSpec.Schema.Value.Type == gojsonschema.TYPE_OBJECT {
 		return t.generateObject("", tag, schema, db, 3)
 	}
@@ -1108,7 +1088,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 			}
 			if len(ar) > 0 {
 				obj := ar[rand.Intn(len(ar))].(map[string]interface{})
-				comp := &Comparison{obj, make(map[string]interface{}), nil, (t.db.GetSchema(tag.Class))}
+				comp := &Comparison{obj, make(map[string]interface{}), nil, t.db.GetSchema(tag.Class)}
 				comp.oldUsed[tag.Property] = comp.old[tag.Property]
 				t.comparisons[tag.Class] = append(t.comparisons[tag.Class], comp)
 				if print {
@@ -1256,7 +1236,7 @@ func generateInt(s mqswag.SchemaRef) (int64, error) {
 
 func (t *Test) generateArray(name string, parentTag *mqswag.MeqaTag, schema mqswag.SchemaRef, db *mqswag.DB, level int) (interface{}, error) {
 	var numItems int
-	if schema.Value.MaxItems != nil || schema.Value.MinItems >= 0 {
+	if schema.Value.MaxItems != nil || schema.Value.MinItems > 0 {
 		var maxItems int = 10
 		if schema.Value.MaxItems != nil {
 			maxItems = int(*schema.Value.MaxItems)
@@ -1265,12 +1245,10 @@ func (t *Test) generateArray(name string, parentTag *mqswag.MeqaTag, schema mqsw
 			}
 		}
 		var minItems int
-		// if schema.MinItems != nil {
 		minItems = int(schema.Value.MinItems)
 		if minItems <= 0 {
 			minItems = 1
 		}
-		// }
 		maxDiff := maxItems - minItems
 		if maxDiff <= 0 {
 			maxDiff = 1
@@ -1282,13 +1260,7 @@ func (t *Test) generateArray(name string, parentTag *mqswag.MeqaTag, schema mqsw
 	if numItems <= 0 {
 		numItems = 1
 	}
-
-	var itemSchema mqswag.SchemaRef
-	// if len(schema.Items.Schemas) != 0 {
-	// 	itemSchema = &(schema.Items.Schemas[0])
-	// } else {
-	itemSchema = (mqswag.SchemaRef)(*schema.Value.Items)
-	// }
+	itemSchema := (mqswag.SchemaRef)(*schema.Value.Items)
 	tag := mqswag.GetMeqaTag(schema.Value.Description)
 	if tag == nil {
 		tag = parentTag

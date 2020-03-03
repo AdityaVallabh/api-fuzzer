@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	// "github.com/go-openapi/spec"
-
 	spec "github.com/getkin/kin-openapi/openapi3"
 )
 

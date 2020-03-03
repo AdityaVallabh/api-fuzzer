@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	// "github.com/go-openapi/spec"
 	spec "github.com/getkin/kin-openapi/openapi3"
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -19,30 +18,6 @@ import (
 // Schema is the swagger spec schema.
 type SchemaRef spec.SchemaRef
 type Schema spec.Schema
-
-func CreateSchemaFromSimple(s SchemaRef, v SchemaRef) SchemaRef {
-	schema := SchemaRef{Ref: s.Ref, Value: s.Value}
-	// schema.AddType(s.Type, s.Format)
-	// if s.Items != nil {
-	// 	schema.Items = &spec.SchemaOrArray{}
-	// 	schema.Items.Schema = (*spec.Schema)(CreateSchemaFromSimple(&s.Items.SimpleSchema, &s.Items.CommonValidations))
-	// }
-	// schema.Default = s.Default
-	// schema.Enum = v.Enum
-	// schema.ExclusiveMaximum = v.ExclusiveMaximum
-	// schema.ExclusiveMinimum = v.ExclusiveMinimum
-	// schema.Max = v.Maximum
-	// schema.Min = v.Minimum
-	// schema.MaxItems = v.MaxItems
-	// schema.MaxLength = v.MaxLength
-	// schema.MinItems = v.MinItems
-	// schema.MinLength = v.MinLength
-	// schema.MultipleOf = v.MultipleOf
-	// schema.Pattern = v.Pattern
-	// schema.UniqueItems = v.UniqueItems
-
-	return schema
-}
 
 // Returns all the first level property names for this schema. We will follow the $refs until
 // we hit a map.
@@ -60,7 +35,7 @@ func (schema SchemaRef) GetProperties(swagger *Swagger) map[string]*spec.SchemaR
 	if len(schema.Value.AllOf) > 0 {
 		properties := make(map[string]*spec.SchemaRef)
 		for _, s := range schema.Value.AllOf {
-			p := s.Value.Properties
+			p := (SchemaRef)(*s).GetProperties(swagger)
 			for k, v := range p {
 				properties[k] = v
 			}
@@ -76,7 +51,7 @@ func (schema SchemaRef) GetProperties(swagger *Swagger) map[string]*spec.SchemaR
 // into the map indexed by the object class name.
 func (schema SchemaRef) Parses(name string, object interface{}, collection map[string][]interface{}, followRef bool, swagger *Swagger) error {
 	raiseError := func(msg string) error {
-		schemaBytes, _ := json.MarshalIndent((*spec.Schema)(schema.Value), "", "    ")
+		schemaBytes, _ := json.MarshalIndent(schema.Value, "", "    ")
 		objectBytes, _ := json.MarshalIndent(object, "", "    ")
 		return errors.New(fmt.Sprintf(
 			"schema and object don't match - %s\nSchema:\n%s\nObject:\n%s\n",
@@ -195,10 +170,6 @@ func (schema SchemaRef) Parses(name string, object interface{}, collection map[s
 		}
 		// Check the array elements.
 		itemsSchema := (SchemaRef)(*schema.Value.Items)
-		// if itemsSchema == nil && len(schema.Items.Schemas) > 0 {
-		// 	s := Schema(schema.Items.Schemas[0])
-		// 	itemsSchema = &s
-		// }
 		if itemsSchema.Value == nil {
 			return raiseError("item schema is null")
 		}
@@ -297,12 +268,7 @@ func (schema SchemaRef) Iterate(iterFunc SchemaIterator, context interface{}, sw
 		}
 	}
 	if strings.Contains(schema.Value.Type, gojsonschema.TYPE_ARRAY) {
-		var itemSchema SchemaRef
-		// if len(schema.Items.Schemas) != 0 {
-		// 	itemSchema = &(schema.Items.Schemas[0])
-		// } else {
-		itemSchema = (SchemaRef)(*schema.Value.Items)
-		// }
+		itemSchema := (*schema.Value.Items)
 		err = (SchemaRef)(itemSchema).Iterate(iterFunc, context, swagger, followWeak)
 		if err != nil {
 			return err
@@ -428,8 +394,8 @@ func (db *DB) Init(s *Swagger) {
 			mqutil.Logger.Printf("warning - schema %s already exists", schemaName)
 		}
 		// Note that schema variable is reused in the loop
-		schemaCopy := schema
-		db.schemas[schemaName] = &SchemaDB{schemaName, (SchemaRef)(*schemaCopy), false, nil}
+		schemaCopy := (SchemaRef)(*schema)
+		db.schemas[schemaName] = &SchemaDB{schemaName, schemaCopy, false, nil}
 	}
 }
 
