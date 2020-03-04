@@ -6,58 +6,36 @@ import (
 	"fmt"
 	"meqa/mqutil"
 	"reflect"
+	"strings"
 	"sync"
 
-	"github.com/go-openapi/spec"
+	spec "github.com/getkin/kin-openapi/openapi3"
 	"github.com/xeipuuv/gojsonschema"
 )
 
 // This file implements the in-memory DB that holds all the entity objects.
 
 // Schema is the swagger spec schema.
+type SchemaRef spec.SchemaRef
 type Schema spec.Schema
-
-func CreateSchemaFromSimple(s *spec.SimpleSchema, v *spec.CommonValidations) *Schema {
-	schema := spec.Schema{}
-	schema.AddType(s.Type, s.Format)
-	if s.Items != nil {
-		schema.Items = &spec.SchemaOrArray{}
-		schema.Items.Schema = (*spec.Schema)(CreateSchemaFromSimple(&s.Items.SimpleSchema, &s.Items.CommonValidations))
-	}
-	schema.Default = s.Default
-	schema.Enum = v.Enum
-	schema.ExclusiveMaximum = v.ExclusiveMaximum
-	schema.ExclusiveMinimum = v.ExclusiveMinimum
-	schema.Maximum = v.Maximum
-	schema.Minimum = v.Minimum
-	schema.MaxItems = v.MaxItems
-	schema.MaxLength = v.MaxLength
-	schema.MinItems = v.MinItems
-	schema.MinLength = v.MinLength
-	schema.MultipleOf = v.MultipleOf
-	schema.Pattern = v.Pattern
-	schema.UniqueItems = v.UniqueItems
-
-	return (*Schema)(&schema)
-}
 
 // Returns all the first level property names for this schema. We will follow the $refs until
 // we hit a map.
-func (schema *Schema) GetProperties(swagger *Swagger) map[string]spec.Schema {
-	if len(schema.Properties) > 0 {
-		return schema.Properties
+func (schema SchemaRef) GetProperties(swagger *Swagger) map[string]*spec.SchemaRef {
+	if len(schema.Value.Properties) > 0 {
+		return schema.Value.Properties
 	}
 	_, referredSchema, err := swagger.GetReferredSchema(schema)
 	if err != nil {
 		return nil
 	}
-	if referredSchema != nil {
+	if referredSchema.Value != nil {
 		return referredSchema.GetProperties(swagger)
 	}
-	if len(schema.AllOf) > 0 {
-		properties := make(map[string]spec.Schema)
-		for _, s := range schema.AllOf {
-			p := ((*Schema)(&s)).GetProperties(swagger)
+	if len(schema.Value.AllOf) > 0 {
+		properties := make(map[string]*spec.SchemaRef)
+		for _, s := range schema.Value.AllOf {
+			p := (SchemaRef)(*s).GetProperties(swagger)
 			for k, v := range p {
 				properties[k] = v
 			}
@@ -71,9 +49,9 @@ func (schema *Schema) GetProperties(swagger *Swagger) map[string]spec.Schema {
 // Prases the object against this schema. If the obj and schema doesn't match
 // return an error. Otherwise parse all the objects identified by the schema
 // into the map indexed by the object class name.
-func (schema *Schema) Parses(name string, object interface{}, collection map[string][]interface{}, followRef bool, swagger *Swagger) error {
+func (schema SchemaRef) Parses(name string, object interface{}, collection map[string][]interface{}, followRef bool, swagger *Swagger) error {
 	raiseError := func(msg string) error {
-		schemaBytes, _ := json.MarshalIndent((*spec.Schema)(schema), "", "    ")
+		schemaBytes, _ := json.MarshalIndent(schema.Value, "", "    ")
 		objectBytes, _ := json.MarshalIndent(object, "", "    ")
 		return errors.New(fmt.Sprintf(
 			"schema and object don't match - %s\nSchema:\n%s\nObject:\n%s\n",
@@ -86,14 +64,14 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 	if err != nil {
 		return err
 	}
-	if referredSchema != nil {
+	if referredSchema.Value != nil {
 		if !followRef {
 			return nil
 		}
 		return referredSchema.Parses(refName, object, collection, followRef, swagger)
 	}
 
-	if len(schema.AllOf) > 0 {
+	if len(schema.Value.AllOf) > 0 {
 		// AllOf can only be combining several objects.
 		objMap, objIsMap := object.(map[string]interface{})
 		if !objIsMap || objMap == nil {
@@ -101,8 +79,8 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 			return raiseError("object is not a map")
 		}
 		count := 0 // keep track of how many of object's properties are accounted for.
-		for _, s := range schema.AllOf {
-			p := ((*Schema)(&s)).GetProperties(swagger)
+		for _, s := range schema.Value.AllOf {
+			p := ((SchemaRef)(*s)).GetProperties(swagger)
 			if len(p) == 0 {
 				continue
 			}
@@ -114,7 +92,7 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 				}
 			}
 			// The name doesn't get passed down. The name is handled at the current level.
-			err = ((*Schema)(&s)).Parses("", m, collection, followRef, swagger)
+			err = ((SchemaRef)(*s)).Parses("", m, collection, followRef, swagger)
 			if err != nil {
 				return err
 			}
@@ -137,30 +115,30 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 	isProperty := true
 	k := reflect.TypeOf(object).Kind()
 	if k == reflect.Bool {
-		if !schema.Type.Contains(gojsonschema.TYPE_BOOLEAN) {
+		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_BOOLEAN) {
 			return raiseError("schema is not a boolean")
 		}
 	} else if k >= reflect.Int && k <= reflect.Uint64 {
-		if !schema.Type.Contains(gojsonschema.TYPE_INTEGER) && !schema.Type.Contains(gojsonschema.TYPE_NUMBER) {
+		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_INTEGER) && !strings.Contains(schema.Value.Type, gojsonschema.TYPE_NUMBER) {
 			return raiseError("schema is not an integer")
 		}
 	} else if k == reflect.Float32 || k == reflect.Float64 {
 		// After unmarshal, the map only holds floats. It doesn't differentiate int and float.
-		if !schema.Type.Contains(gojsonschema.TYPE_INTEGER) && !schema.Type.Contains(gojsonschema.TYPE_NUMBER) {
+		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_INTEGER) && !strings.Contains(schema.Value.Type, gojsonschema.TYPE_NUMBER) {
 			return raiseError("schema is not a floating point number")
 		}
 	} else if k == reflect.String {
-		bothAreNumbers := reflect.TypeOf(object).String() == "json.Number" && (schema.Type.Contains(gojsonschema.TYPE_INTEGER) || schema.Type.Contains(gojsonschema.TYPE_NUMBER))
-		if !schema.Type.Contains(gojsonschema.TYPE_STRING) && !bothAreNumbers {
+		bothAreNumbers := reflect.TypeOf(object).String() == "json.Number" && (strings.Contains(schema.Value.Type, gojsonschema.TYPE_INTEGER) || strings.Contains(schema.Value.Type, gojsonschema.TYPE_NUMBER))
+		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_STRING) && !bothAreNumbers {
 			return raiseError("schema is not a number")
 		}
 	} else if k == reflect.Map {
 		isProperty = false
 		objMap, objIsMap := object.(map[string]interface{})
-		if !objIsMap { // || !schema.Type.Contains(gojsonschema.TYPE_OBJECT) {
+		if !objIsMap { // || !strings.Contains(schema.Value.Type, gojsonschema.TYPE_OBJECT) {
 			return raiseError("schema is not an object")
 		}
-		for _, requiredName := range schema.Required {
+		for _, requiredName := range schema.Value.Required {
 			if _, exist := objMap[requiredName]; !exist {
 				return raiseError(fmt.Sprintf("required field not present: %s", requiredName))
 			}
@@ -168,10 +146,10 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 		// Check all the properties of the object and make sure that they can be found on the schema.
 		count := 0
 		for propertyName, objProperty := range objMap {
-			propertySchema, exist := schema.Properties[propertyName]
+			propertySchema, exist := schema.Value.Properties[propertyName]
 			if exist {
 				count++
-				err = ((*Schema)(&propertySchema)).Parses("", objProperty, collection, followRef, swagger)
+				err = ((SchemaRef)(*propertySchema)).Parses("", objProperty, collection, followRef, swagger)
 				if err != nil {
 					return err
 				}
@@ -187,16 +165,12 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 		}
 	} else if k == reflect.Array || k == reflect.Slice {
 		isProperty = false
-		if !schema.Type.Contains(gojsonschema.TYPE_ARRAY) {
+		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_ARRAY) {
 			return raiseError("schema is not an array")
 		}
 		// Check the array elements.
-		itemsSchema := (*Schema)(schema.Items.Schema)
-		if itemsSchema == nil && len(schema.Items.Schemas) > 0 {
-			s := Schema(schema.Items.Schemas[0])
-			itemsSchema = &s
-		}
-		if itemsSchema == nil {
+		itemsSchema := (SchemaRef)(*schema.Value.Items)
+		if itemsSchema.Value == nil {
 			return raiseError("item schema is null")
 		}
 		ar := object.([]interface{})
@@ -210,7 +184,7 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 		return raiseError(fmt.Sprintf("unknown type: %v", k))
 	}
 	if isProperty && !followRef {
-		tag := GetMeqaTag(schema.Description)
+		tag := GetMeqaTag(schema.Value.Description)
 		if tag != nil && len(tag.Class) > 0 && len(tag.Property) > 0 {
 			key := fmt.Sprintf("%s.%s", tag.Class, tag.Property)
 			collection[key] = append(collection[key], object)
@@ -222,13 +196,13 @@ func (schema *Schema) Parses(name string, object interface{}, collection map[str
 // Matches checks if the Schema matches the input interface. In proper swagger.json
 // Enums should have types as well. So we don't check for untyped enums.
 // TODO check format, handle AllOf, AnyOf, OneOf
-func (schema *Schema) Matches(object interface{}, swagger *Swagger) bool {
+func (schema SchemaRef) Matches(object interface{}, swagger *Swagger) bool {
 	err := schema.Parses("", object, make(map[string][]interface{}), true, swagger)
 	return err == nil
 }
 
-func (schema *Schema) Contains(name string, swagger *Swagger) bool {
-	iterFunc := func(swagger *Swagger, schemaName string, schema *Schema, context interface{}) error {
+func (schema SchemaRef) Contains(name string, swagger *Swagger) bool {
+	iterFunc := func(swagger *Swagger, schemaName string, schema SchemaRef, context interface{}) error {
 		// The only way we have to abort is through an error.
 		if schemaName == name {
 			return errors.New("found")
@@ -243,13 +217,13 @@ func (schema *Schema) Contains(name string, swagger *Swagger) bool {
 	return false
 }
 
-type SchemaIterator func(swagger *Swagger, schemaName string, schema *Schema, context interface{}) error
+type SchemaIterator func(swagger *Swagger, schemaName string, schema SchemaRef, context interface{}) error
 
 // IterateSchema descends down the starting schema and call the iterator function for all the child schemas.
 // The iteration order is parent first then children. It will abort on error. The followWeak flag indicates whether
 // we should follow weak references when iterating.
-func (schema *Schema) Iterate(iterFunc SchemaIterator, context interface{}, swagger *Swagger, followWeak bool) error {
-	tag := GetMeqaTag(schema.Description)
+func (schema SchemaRef) Iterate(iterFunc SchemaIterator, context interface{}, swagger *Swagger, followWeak bool) error {
+	tag := GetMeqaTag(schema.Value.Description)
 	if tag != nil && (tag.Flags&FlagWeak) != 0 && !followWeak {
 		return nil
 	}
@@ -259,9 +233,9 @@ func (schema *Schema) Iterate(iterFunc SchemaIterator, context interface{}, swag
 		return err
 	}
 
-	if len(schema.AllOf) > 0 {
-		for _, s := range schema.AllOf {
-			err = ((*Schema)(&s)).Iterate(iterFunc, context, swagger, followWeak)
+	if len(schema.Value.AllOf) > 0 {
+		for _, s := range schema.Value.AllOf {
+			err = ((SchemaRef)(*s)).Iterate(iterFunc, context, swagger, followWeak)
 			if err != nil {
 				return err
 			}
@@ -274,8 +248,8 @@ func (schema *Schema) Iterate(iterFunc SchemaIterator, context interface{}, swag
 	if err != nil {
 		return err
 	}
-	if referredSchema != nil {
-		tag := GetMeqaTag(referredSchema.Description)
+	if referredSchema.Value != nil {
+		tag := GetMeqaTag(referredSchema.Value.Description)
 		if tag != nil && (tag.Flags&FlagWeak) != 0 && !followWeak {
 			return nil
 		}
@@ -285,22 +259,17 @@ func (schema *Schema) Iterate(iterFunc SchemaIterator, context interface{}, swag
 		// return referredSchema.Iterate(iterFunc, context, swagger)
 	}
 
-	if schema.Type.Contains(gojsonschema.TYPE_OBJECT) {
-		for _, v := range schema.Properties {
-			err = (*Schema)(&v).Iterate(iterFunc, context, swagger, followWeak)
+	if strings.Contains(schema.Value.Type, gojsonschema.TYPE_OBJECT) {
+		for _, v := range schema.Value.Properties {
+			err = (SchemaRef)(*v).Iterate(iterFunc, context, swagger, followWeak)
 			if err != nil {
 				return err
 			}
 		}
 	}
-	if schema.Type.Contains(gojsonschema.TYPE_ARRAY) {
-		var itemSchema *spec.Schema
-		if len(schema.Items.Schemas) != 0 {
-			itemSchema = &(schema.Items.Schemas[0])
-		} else {
-			itemSchema = schema.Items.Schema
-		}
-		err = (*Schema)(itemSchema).Iterate(iterFunc, context, swagger, followWeak)
+	if strings.Contains(schema.Value.Type, gojsonschema.TYPE_ARRAY) {
+		itemSchema := (*schema.Value.Items)
+		err = (SchemaRef)(itemSchema).Iterate(iterFunc, context, swagger, followWeak)
 		if err != nil {
 			return err
 		}
@@ -326,7 +295,7 @@ func (entry *DBEntry) Matches(criteria interface{}, associations map[string]map[
 // the schema. We don't build indexes and do linear search. This keeps the searching flexible for now.
 type SchemaDB struct {
 	Name      string
-	Schema    *Schema
+	Schema    SchemaRef
 	NoHistory bool
 	Objects   []*DBEntry
 }
@@ -420,13 +389,13 @@ type DB struct {
 func (db *DB) Init(s *Swagger) {
 	db.Swagger = s
 	db.schemas = make(map[string](*SchemaDB))
-	for schemaName, schema := range s.Definitions {
+	for schemaName, schema := range s.Components.Schemas {
 		if _, ok := db.schemas[schemaName]; ok {
 			mqutil.Logger.Printf("warning - schema %s already exists", schemaName)
 		}
 		// Note that schema variable is reused in the loop
-		schemaCopy := schema
-		db.schemas[schemaName] = &SchemaDB{schemaName, (*Schema)(&schemaCopy), false, nil}
+		schemaCopy := (SchemaRef)(*schema)
+		db.schemas[schemaName] = &SchemaDB{schemaName, schemaCopy, false, nil}
 	}
 }
 
@@ -439,11 +408,11 @@ func (db *DB) CloneSchema() *DB {
 	return &DB{schemas, db.Swagger, sync.Mutex{}}
 }
 
-func (db *DB) GetSchema(name string) *Schema {
+func (db *DB) GetSchema(name string) SchemaRef {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	if db.schemas[name] == nil {
-		return nil
+		return SchemaRef{}
 	}
 	return db.schemas[name].Schema
 }
@@ -505,15 +474,15 @@ func (db *DB) Update(name string, criteria interface{}, associations map[string]
 }
 
 // FindMatchingSchema finds the schema that matches the obj.
-func (db *DB) FindMatchingSchema(obj interface{}) (string, *spec.Schema) {
+func (db *DB) FindMatchingSchema(obj interface{}) (string, SchemaRef) {
 	for name, schemaDB := range db.schemas {
 		schema := schemaDB.Schema
 		if schema.Matches(obj, db.Swagger) {
 			mqutil.Logger.Printf("found matching schema: %s", name)
-			return name, (*spec.Schema)(schema)
+			return name, (SchemaRef)(schema)
 		}
 	}
-	return "", nil
+	return "", SchemaRef{}
 }
 
 // DB holds schema name to Schema mapping.
