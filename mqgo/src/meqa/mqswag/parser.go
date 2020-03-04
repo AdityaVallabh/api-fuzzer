@@ -12,8 +12,6 @@ import (
 	"strings"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
-	"github.com/go-openapi/loads"
-	"github.com/go-openapi/loads/fmts"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -539,8 +537,4 @@ func (swagger *Swagger) AddToDAG(dag *DAG) error {
 	}
 
 	return nil
-}
-
-func init() {
-	loads.AddLoader(fmts.YAMLMatcher, fmts.YAMLDoc)
 }
