@@ -31,24 +31,6 @@ const (
 )
 
 func GetBaseURL(swagger *mqswag.Swagger) string {
-	// Prefer http, then https, then others.
-	// scheme := ""
-	// if len(swagger.Schemes) == 0 {
-	// 	scheme = "http"
-	// } else {
-	// 	for _, s := range swagger.Schemes {
-	// 		if s == "http" {
-	// 			scheme = s
-	// 			break
-	// 		} else if s == "https" {
-	// 			scheme = s
-	// 		}
-	// 	}
-	// 	if len(scheme) == 0 {
-	// 		scheme = swagger.Schemes[0]
-	// 	}
-	// }
-	// return scheme + "://" + swagger.Host + swagger.BasePath
 	return swagger.Servers[0].URL
 }
 
