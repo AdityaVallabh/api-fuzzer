@@ -27,6 +27,24 @@
 			"revisionTime": "2017-03-29T04:21:07Z"
 		},
 		{
+			"checksumSHA1": "H3M2OnIgRQVCIzlfgmy0/Zxb5Po=",
+			"path": "github.com/getkin/kin-openapi/jsoninfo",
+			"revision": "e7e26782ae6a4633291fe444c684d43cb8dd9a14",
+			"revisionTime": "2020-03-02T10:03:53Z"
+		},
+		{
+			"checksumSHA1": "C0mXq7BgHwRWvnBavL8JaRatIP8=",
+			"path": "github.com/getkin/kin-openapi/openapi3",
+			"revision": "e7e26782ae6a4633291fe444c684d43cb8dd9a14",
+			"revisionTime": "2020-03-02T10:03:53Z"
+		},
+		{
+			"checksumSHA1": "WDcVWDtHun6YjZ5ImyORwp2qGxY=",
+			"path": "github.com/ghodss/yaml",
+			"revision": "25d852aebe32c875e9c044af3eef9c7dc6bc777f",
+			"revisionTime": "2019-02-12T21:16:48Z"
+		},
+		{
 			"checksumSHA1": "OwxeZNizPZT7YriySSR4haPHcRg=",
 			"path": "github.com/go-openapi/analysis",
 			"revision": "8ed83f2ea9f00f945516462951a288eaa68bf0d6",
@@ -279,10 +297,10 @@
 			"revisionTime": "2017-10-01T22:47:47Z"
 		},
 		{
-			"checksumSHA1": "zmC8/3V4ls53DJlNTKDZwPSC/dA=",
+			"checksumSHA1": "Tutue3nEgM/87jitUcYv6ODwyNE=",
 			"path": "github.com/satori/go.uuid",
-			"revision": "5bf94b69c6b68ee1b541973bb8e1144db23a194b",
-			"revisionTime": "2017-03-21T23:07:31Z"
+			"revision": "b2ce2384e17bbe0c6d34077efa39dbab3e09123b",
+			"revisionTime": "2018-10-28T12:50:25Z"
 		},
 		{
 			"checksumSHA1": "no1wWzwmqFGxmfcU7U0E8KTmQcs=",
