@@ -396,7 +396,7 @@ var methodWeight = map[string]int{
 }
 
 func AddOperation(pathName string, pathItem *spec.PathItem, method string, swagger *Swagger, dag *DAG, setPriority bool) error {
-	op := pathItem.GetOperation(method)
+	op := pathItem.GetOperation(strings.ToUpper(method))
 	if op == nil {
 		return nil
 	}
