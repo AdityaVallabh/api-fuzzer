@@ -11,17 +11,19 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/resty.v0"
+	"gopkg.in/resty.v1"
 
-	"meqa/mqswag"
-	"meqa/mqutil"
 	"reflect"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqswag"
 
 	"encoding/json"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
+	uuid "github.com/gofrs/uuid"
 	"github.com/lucasjones/reggen"
-	uuid "github.com/satori/go.uuid"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -407,7 +409,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 		if ok {
 			respSpec = respObject.Value
 			// useDefaultSpec = false
-		} else {
+		} else if t.op.Responses.Default() != nil {
 			respSpec = t.op.Responses.Default().Value
 		}
 	}
@@ -761,7 +763,7 @@ func (t *Test) Run(tc *TestSuite) error {
 		req.SetBasicAuth(tc.Username, tc.Password)
 	}
 
-	path := GetBaseURL(t.db.Swagger) + t.SetRequestParameters(req)
+	path := tc.plan.BaseURL + t.SetRequestParameters(req)
 	var resp *resty.Response
 
 	t.startTime = time.Now()
@@ -914,6 +916,9 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 			}
 			fmt.Print("provided\n")
 		} else {
+			if _, ok := t.op.RequestBody.Value.Content[mqswag.JsonResponse]; !ok {
+				return mqutil.NewError(mqutil.ErrInvalid, "Unsupported type")
+			}
 			bodyParam := &spec.Parameter{Schema: t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema}
 			genParam, err = t.GenerateParameter(bodyParam, t.db)
 			if err != nil {
@@ -980,9 +985,11 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 		removeNulls(m)
 	}
 	if t.BodyParams != nil {
-		bodyMap := t.BodyParams.(map[string]interface{})
-		removeNulls(&bodyMap)
-		t.BodyParams = bodyMap
+		bodyMap, bodyIsMap := t.BodyParams.(map[string]interface{})
+		if bodyIsMap {
+			removeNulls(&bodyMap)
+			t.BodyParams = bodyMap
+		}
 	}
 	return nil
 }

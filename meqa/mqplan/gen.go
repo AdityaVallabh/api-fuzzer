@@ -2,10 +2,12 @@ package mqplan
 
 import (
 	"fmt"
-	"meqa/mqswag"
-	"meqa/mqutil"
 	"sort"
 	"strings"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqswag"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
 )

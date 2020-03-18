@@ -4,12 +4,13 @@ package mqswag
 import (
 	"fmt"
 	"io/ioutil"
-	"meqa/mqutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
 

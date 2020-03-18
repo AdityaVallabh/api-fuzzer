@@ -10,11 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/resty.v0"
+	"gopkg.in/resty.v1"
 	"gopkg.in/yaml.v2"
 
-	"meqa/mqswag"
-	"meqa/mqutil"
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqswag"
 )
 
 const (
@@ -110,6 +111,7 @@ type TestPlan struct {
 	// global parameters
 	TestParams `yaml:",inline,omitempty" json:",inline,omitempty"`
 	Strict     bool
+	BaseURL    string
 
 	// Authentication
 	Username string

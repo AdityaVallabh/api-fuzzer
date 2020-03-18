@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"meqa/mqutil"
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
 	"github.com/xeipuuv/gojsonschema"

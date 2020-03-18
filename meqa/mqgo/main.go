@@ -10,13 +10,16 @@ import (
 	"os"
 	"strings"
 
-	"meqa/mqplan"
-	"meqa/mqswag"
-	"meqa/mqutil"
 	"path/filepath"
 
-	uuid "github.com/satori/go.uuid"
-	"gopkg.in/resty.v0"
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqswag"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqplan"
+
+	uuid "github.com/gofrs/uuid"
+	"gopkg.in/resty.v1"
 	"gopkg.in/yaml.v2"
 )
 
@@ -218,6 +221,7 @@ func main() {
 	username := runCommand.String("u", "", "the username for basic HTTP authentication")
 	password := runCommand.String("w", "", "the password for basic HTTP authentication")
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
+	baseURL := runCommand.String("h", "", "the host's base url")
 	verbose := runCommand.Bool("v", false, "turn on verbose mode")
 
 	flag.Usage = func() {
@@ -288,22 +292,22 @@ func main() {
 		return
 	}
 
-	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, verbose)
+	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, verbose)
 }
 
-func runMeqa(meqaPath *string, swaggerFile *string, testPlanFile *string, resultPath *string,
-	testToRun *string, username *string, password *string, apitoken *string, verbose *bool) {
+func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
+	testToRun, username, password, apitoken, baseURL *string, verbose *bool) {
 
 	mqutil.Verbose = *verbose
 
 	if len(*testPlanFile) == 0 {
 		fmt.Println("You must use -p to specify a test plan file. Use -h to see more options.")
-		return
+		os.Exit(1)
 	}
 
 	if _, err := os.Stat(*testPlanFile); os.IsNotExist(err) {
 		fmt.Printf("can't load test plan file at the following location %s", *testPlanFile)
-		return
+		os.Exit(1)
 	}
 
 	// load swagger.yml
@@ -317,6 +321,10 @@ func runMeqa(meqaPath *string, swaggerFile *string, testPlanFile *string, result
 	mqplan.Current.Username = *username
 	mqplan.Current.Password = *password
 	mqplan.Current.ApiToken = *apitoken
+	if *baseURL == "" {
+		*baseURL = swagger.Servers[0].URL
+	}
+	mqplan.Current.BaseURL = *baseURL
 	err = mqplan.Current.InitFromFile(*testPlanFile, &mqswag.ObjDB)
 	if err != nil {
 		mqutil.Logger.Printf("Error loading test plan: %s", err.Error())

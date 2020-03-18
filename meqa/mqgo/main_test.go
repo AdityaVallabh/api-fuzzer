@@ -1,26 +1,28 @@
 package main
 
 import (
-	"meqa/mqutil"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
 )
 
 func TestMqgo(t *testing.T) {
 	wd, _ := os.Getwd()
-	meqaPath := filepath.Join(wd, "../../../testdata")
+	meqaPath := filepath.Join(wd, "../../testdata")
 	swaggerPath := filepath.Join(meqaPath, "petstore_meqa.yml")
-	planPath := filepath.Join(meqaPath, "object.yml")
+	planPath := filepath.Join(meqaPath, "simple.yml")
 	resultPath := filepath.Join(meqaPath, "result.yml")
 	testToRun := "all"
+	baseURL := ""
 	username := ""
 	password := ""
 	apitoken := ""
 	verbose := false
 
 	mqutil.Logger = mqutil.NewFileLogger(filepath.Join(meqaPath, "mqgo.log"))
-	runMeqa(&meqaPath, &swaggerPath, &planPath, &resultPath, &testToRun, &username, &password, &apitoken, &verbose)
+	runMeqa(&meqaPath, &swaggerPath, &planPath, &resultPath, &testToRun, &username, &password, &apitoken, &baseURL, &verbose)
 }
 
 func TestMain(m *testing.M) {
