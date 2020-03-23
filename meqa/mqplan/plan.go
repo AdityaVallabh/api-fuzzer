@@ -122,7 +122,8 @@ type TestPlan struct {
 	resultList   []*Test
 	ResultCounts map[string]int
 
-	comment string
+	comment  string
+	FuzzType int
 }
 
 // Add a new TestSuite, returns whether the Case is successfully added.
@@ -279,6 +280,7 @@ func (plan *TestPlan) PrintSummary() {
 	fmt.Print(mqutil.RED)
 	fmt.Printf("%v: %v\n", mqutil.Failed, plan.ResultCounts[mqutil.Failed])
 	fmt.Print(mqutil.YELLOW)
+	fmt.Printf("%v: %v\n", mqutil.Skipped, plan.ResultCounts[mqutil.Skipped])
 	fmt.Printf("%v: %v\n", mqutil.SchemaMismatch, plan.ResultCounts[mqutil.SchemaMismatch])
 	fmt.Print(mqutil.AQUA)
 	fmt.Printf("%v: %v\n", mqutil.Total, plan.ResultCounts[mqutil.Total])
@@ -309,7 +311,7 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 	resultCounts[mqutil.Total] = len(tc.Tests)
 	resultCounts[mqutil.Failed] = 0
 	var tcErr error
-	for _, test := range tc.Tests {
+	for i, test := range tc.Tests {
 		if len(test.Ref) != 0 {
 			test.Strict = tc.Strict
 			resultCounts, err := plan.Run(test.Ref, test)
@@ -347,9 +349,14 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 			if tcErr == nil {
 				tcErr = err
 			}
-			continue
+		} else {
+			resultCounts[mqutil.Passed]++
 		}
-		resultCounts[mqutil.Passed]++
+		if dup.Method == mqswag.MethodPost && len(dup.PathParams) == 0 && dup.resp.RawResponse.StatusCode >= 300 {
+			fmt.Printf("Skipping %v tests...\n", len(tc.Tests)-i-1)
+			resultCounts[mqutil.Skipped] += len(tc.Tests) - i - 1
+			break
+		}
 	}
 	return resultCounts, tcErr
 }

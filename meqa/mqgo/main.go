@@ -222,6 +222,7 @@ func main() {
 	password := runCommand.String("w", "", "the password for basic HTTP authentication")
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
 	baseURL := runCommand.String("h", "", "the host's base url")
+	fuzzType := runCommand.Int("f", 0, "fuzz type")
 	verbose := runCommand.Bool("v", false, "turn on verbose mode")
 
 	flag.Usage = func() {
@@ -292,11 +293,11 @@ func main() {
 		return
 	}
 
-	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, verbose)
+	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, fuzzType, verbose)
 }
 
 func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
-	testToRun, username, password, apitoken, baseURL *string, verbose *bool) {
+	testToRun, username, password, apitoken, baseURL *string, fuzzType *int, verbose *bool) {
 
 	mqutil.Verbose = *verbose
 
@@ -325,6 +326,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		*baseURL = swagger.Servers[0].URL
 	}
 	mqplan.Current.BaseURL = *baseURL
+	mqplan.Current.FuzzType = *fuzzType
 	err = mqplan.Current.InitFromFile(*testPlanFile, &mqswag.ObjDB)
 	if err != nil {
 		mqutil.Logger.Printf("Error loading test plan: %s", err.Error())

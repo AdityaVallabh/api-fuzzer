@@ -1094,6 +1094,24 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		}
 		var result interface{}
 		var err error
+		if t.suite.plan.FuzzType >= 2 && s.Value.Type != gojsonschema.TYPE_STRING {
+			types := []string{
+				gojsonschema.TYPE_BOOLEAN,
+				gojsonschema.TYPE_INTEGER,
+				gojsonschema.TYPE_NUMBER,
+				gojsonschema.TYPE_STRING,
+			}
+			randType := s.Value.Type
+			for randType == s.Value.Type {
+				randType = types[rand.Intn(len(types))]
+			}
+			s.Value.Type = randType
+			if t.Expect == nil {
+				t.Expect = make(map[string]interface{})
+			}
+			t.Expect["status"] = "fail"
+			s.Value.Format = ""
+		}
 		switch s.Value.Type {
 		case gojsonschema.TYPE_BOOLEAN:
 			result, err = generateBool(s)

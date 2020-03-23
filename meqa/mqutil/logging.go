@@ -11,6 +11,7 @@ import (
 const (
 	Passed         = "Passed"
 	Failed         = "Failed"
+	Skipped        = "Skipped"
 	SchemaMismatch = "SchemaMismatch"
 	Total          = "Total"
 )
