@@ -128,10 +128,10 @@ func MapReplace(dst map[string]interface{}, src map[string]interface{}) map[stri
 }
 
 func MapCopy(src map[string]interface{}) map[string]interface{} {
-	if len(src) == 0 {
-		return nil
-	}
 	dst := make(map[string]interface{})
+	if len(src) == 0 {
+		return dst
+	}
 	for k, v := range src {
 		if m, ok := v.(map[string]interface{}); ok {
 			v = MapCopy(m)

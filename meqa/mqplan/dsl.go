@@ -1221,7 +1221,14 @@ func generateFloat(s mqswag.SchemaRef) (float64, error) {
 				*s.Value.Min, *s.Value.Max))
 		}
 	}
-	return rand.Float64()*(realmax-realmin) + realmin, nil
+	if realmin == 0 && realmax == 0 {
+		realmax = 10.0
+	}
+	ret := rand.Float64()*(realmax-realmin) + realmin
+	for ret == float64(int(ret)) {
+		ret = rand.Float64()*(realmax-realmin) + realmin
+	}
+	return ret, nil
 }
 
 func generateInt(s mqswag.SchemaRef) (int64, error) {
