@@ -32,6 +32,15 @@ const (
 	ExpectBody   = "body"
 )
 
+var (
+	dataTypes = [...]string{
+		gojsonschema.TYPE_BOOLEAN,
+		gojsonschema.TYPE_INTEGER,
+		gojsonschema.TYPE_NUMBER,
+		gojsonschema.TYPE_STRING,
+	}
+)
+
 func GetBaseURL(swagger *mqswag.Swagger) string {
 	return swagger.Servers[0].URL
 }
@@ -96,6 +105,7 @@ type Test struct {
 	// Map of Object name (matching definitions) to the Comparison object.
 	// This tracks what objects we need to add to DB at the end of test.
 	comparisons map[string]([]*Comparison)
+	sampleSpace map[string][]interface{}
 
 	tag   *mqswag.MeqaTag // The tag at the top level that describes the test
 	db    *mqswag.DB
@@ -149,6 +159,7 @@ func (t *Test) Duplicate() *Test {
 	test.op = nil
 	test.resp = nil
 	test.comparisons = make(map[string]([]*Comparison))
+	test.sampleSpace = make(map[string][]interface{})
 	test.err = nil
 	test.db = test.suite.db
 
@@ -1092,45 +1103,45 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if print {
 			fmt.Print("random\n")
 		}
-		var result interface{}
-		var err error
-		if t.suite.plan.FuzzType >= 2 && s.Value.Type != gojsonschema.TYPE_STRING {
-			types := []string{
-				gojsonschema.TYPE_BOOLEAN,
-				gojsonschema.TYPE_INTEGER,
-				gojsonschema.TYPE_NUMBER,
-				gojsonschema.TYPE_STRING,
-			}
-			randType := s.Value.Type
-			for randType == s.Value.Type {
-				randType = types[rand.Intn(len(types))]
-			}
-			s.Value.Type = randType
-			if t.Expect == nil {
-				t.Expect = make(map[string]interface{})
-			}
-			t.Expect["status"] = "fail"
-			s.Value.Format = ""
-		}
-		switch s.Value.Type {
-		case gojsonschema.TYPE_BOOLEAN:
-			result, err = generateBool(s)
-		case gojsonschema.TYPE_INTEGER:
-			result, err = generateInt(s)
-		case gojsonschema.TYPE_NUMBER:
-			result, err = generateFloat(s)
-		case gojsonschema.TYPE_STRING:
-			result, err = generateString(s, prefix)
-		case "file":
-			return nil, errors.New("can not automatically upload a file, parameter of file type must be manually set\n")
-		}
+		result, err := generateValue(s.Value.Type, s, prefix)
+		name := strings.ReplaceAll(prefix, "_", "")
+		t.sampleSpace[name] = []interface{}{result}
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
-			return result, err
 		}
+		if t.suite.plan.FuzzType == 2 && s.Value.Type != gojsonschema.TYPE_STRING {
+			s.Value.Format = ""
+			for _, valueType := range dataTypes {
+				if valueType != s.Value.Type {
+					res, err := generateValue(valueType, s, prefix)
+					if res != nil && err == nil {
+						t.sampleSpace[name] = append(t.sampleSpace[name], res)
+					}
+				}
+			}
+		}
+		return result, err
 	}
 
 	return nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("unrecognized type: %s", s.Value.Type))
+}
+
+func generateValue(valueType string, s mqswag.SchemaRef, prefix string) (interface{}, error) {
+	var result interface{}
+	var err error
+	switch valueType {
+	case gojsonschema.TYPE_BOOLEAN:
+		result, err = generateBool(s)
+	case gojsonschema.TYPE_INTEGER:
+		result, err = generateInt(s)
+	case gojsonschema.TYPE_NUMBER:
+		result, err = generateFloat(s)
+	case gojsonschema.TYPE_STRING:
+		result, err = generateString(s, prefix)
+	case "file":
+		return nil, errors.New("can not automatically upload a file, parameter of file type must be manually set\n")
+	}
+	return result, err
 }
 
 // RandomTime generate a random time in the range of [t, t + r).
