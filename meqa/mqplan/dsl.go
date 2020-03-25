@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/resty.v1"
@@ -28,8 +29,10 @@ import (
 )
 
 const (
-	ExpectStatus = "status"
-	ExpectBody   = "body"
+	ExpectStatus     = "status"
+	ExpectBody       = "body"
+	BadRequestStatus = 400
+	uniqueKey        = "name"
 )
 
 var (
@@ -756,17 +759,69 @@ func (t *Test) CopyParent(parentTest *Test) {
 	}
 }
 
-// Run runs the test. Returns the test result.
-func (t *Test) Run(tc *TestSuite) error {
-
-	mqutil.Logger.Print("\n--- " + t.Name)
-	fmt.Printf("\nRunning test case: %s\n", t.Name)
-	err := t.ResolveParameters(tc)
-	if err != nil {
-		fmt.Printf("... Fail\n... %s\n", err.Error())
-		return err
+func mixAndMatch(baseTest *Test) error {
+	var positiveDone bool
+	var wg sync.WaitGroup
+	var errPositive error
+	prod := 1
+	for _, v := range baseTest.sampleSpace {
+		prod *= len(v)
 	}
+	fmt.Println(prod)
+	wg.Add(prod)
+	keys := getKeys(baseTest.sampleSpace)
+	var mixMatch func(i int, bodyMap map[string]interface{})
+	mixMatch = func(i int, bodyMap map[string]interface{}) {
+		// Base Case
+		if i == len(keys) {
+			if !positiveDone {
+				defer wg.Done()
+				positiveDone = true
+				errPositive = baseTest.Do()
+				return
+			}
+			go func(bodyMap map[string]interface{}, wg *sync.WaitGroup) {
+				defer wg.Done()
+				t := baseTest.Duplicate()
+				t.op = baseTest.op
+				bodyMap[uniqueKey], _ = generateString(mqswag.SchemaRef{Value: (*spec.Schema)(&mqswag.Schema{})}, uniqueKey+"_")
+				t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), bodyMap)
+				if t.Expect == nil {
+					t.Expect = make(map[string]interface{})
+				}
+				t.Expect[ExpectStatus] = BadRequestStatus
+				t.Expect[ExpectBody] = nil
+				err := t.Do()
+				if err != nil {
+					resp, _ := json.Marshal(t.Expect)
+					fmt.Printf("Expecting %v but got: %v", BadRequestStatus, string(resp))
+				}
+			}(mqutil.MapCopy(bodyMap), &wg)
+			return
+		}
 
+		// Recursive calls
+		for _, v := range baseTest.sampleSpace[keys[i]] {
+			copyMap := mqutil.MapCopy(bodyMap)
+			copyMap[keys[i]] = v
+			mixMatch(i+1, copyMap)
+		}
+	}
+	mixMatch(0, make(map[string]interface{}))
+	wg.Wait()
+	return errPositive
+}
+
+func getKeys(m map[string][]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (t *Test) Do() error {
+	tc := t.suite
 	req := resty.R()
 	if len(tc.ApiToken) > 0 {
 		req.SetAuthToken(tc.ApiToken)
@@ -776,7 +831,7 @@ func (t *Test) Run(tc *TestSuite) error {
 
 	path := tc.plan.BaseURL + t.SetRequestParameters(req)
 	var resp *resty.Response
-
+	var err error
 	t.startTime = time.Now()
 	switch t.Method {
 	case mqswag.MethodGet:
@@ -807,6 +862,19 @@ func (t *Test) Run(tc *TestSuite) error {
 	}
 	err = t.ProcessResult(resp)
 	return err
+}
+
+// Run runs the test. Returns the test result.
+func (t *Test) Run(tc *TestSuite) error {
+
+	mqutil.Logger.Print("\n--- " + t.Name)
+	fmt.Printf("\nRunning test case: %s\n", t.Name)
+	err := t.ResolveParameters(tc)
+	if err != nil {
+		fmt.Printf("... Fail\n... %s\n", err.Error())
+		return err
+	}
+	return mixAndMatch(t)
 }
 
 func StringParamsResolveWithHistory(str string, h *TestHistory) interface{} {
