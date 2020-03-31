@@ -29,11 +29,16 @@ import (
 )
 
 const (
-	ExpectStatus     = "status"
-	ExpectBody       = "body"
-	BadRequestStatus = 400
-	uniqueKey        = "name"
+	ExpectStatus = "status"
+	ExpectBody   = "body"
+	uniqueKey    = "name"
+
+	MaxRetries            = 10
+	BadRequestStatus      = 400
+	TooManyRequestsStatus = 429
 )
+
+type Datum interface{}
 
 var (
 	dataTypes = [...]string{
@@ -793,8 +798,8 @@ func mixAndMatch(baseTest *Test) error {
 				t.Expect[ExpectBody] = nil
 				err := t.Do()
 				if err != nil {
-					resp, _ := json.Marshal(t.Expect)
-					fmt.Printf("Expecting %v but got: %v", BadRequestStatus, string(resp))
+					resp, _ := json.Marshal(t.resp)
+					fmt.Printf("Expecting %v but got %v: %v\nRequest Body: %v", BadRequestStatus, t.resp.StatusCode(), resp, t.BodyParams)
 				}
 			}(mqutil.MapCopy(bodyMap), &wg)
 			return
@@ -832,28 +837,33 @@ func (t *Test) Do() error {
 	path := tc.plan.BaseURL + t.SetRequestParameters(req)
 	var resp *resty.Response
 	var err error
-	t.startTime = time.Now()
-	switch t.Method {
-	case mqswag.MethodGet:
-		resp, err = req.Get(path)
-	case mqswag.MethodPost:
-		resp, err = req.Post(path)
-	case mqswag.MethodPut:
-		resp, err = req.Put(path)
-	case mqswag.MethodDelete:
-		resp, err = req.Delete(path)
-	case mqswag.MethodPatch:
-		resp, err = req.Patch(path)
-	case mqswag.MethodHead:
-		resp, err = req.Head(path)
-	case mqswag.MethodOptions:
-		resp, err = req.Options(path)
-	default:
-		return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
+	for retries := 0; retries < MaxRetries; retries++ {
+		t.startTime = time.Now()
+		switch t.Method {
+		case mqswag.MethodGet:
+			resp, err = req.Get(path)
+		case mqswag.MethodPost:
+			resp, err = req.Post(path)
+		case mqswag.MethodPut:
+			resp, err = req.Put(path)
+		case mqswag.MethodDelete:
+			resp, err = req.Delete(path)
+		case mqswag.MethodPatch:
+			resp, err = req.Patch(path)
+		case mqswag.MethodHead:
+			resp, err = req.Head(path)
+		case mqswag.MethodOptions:
+			resp, err = req.Options(path)
+		default:
+			return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
+		}
+		t.stopTime = time.Now()
+		fmt.Printf("... call completed: %f seconds\n", t.stopTime.Sub(t.startTime).Seconds())
+		if resp.StatusCode() != TooManyRequestsStatus {
+			break
+		}
+		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000)))
 	}
-	t.stopTime = time.Now()
-	fmt.Printf("... call completed: %f seconds\n", t.stopTime.Sub(t.startTime).Seconds())
-
 	if err != nil {
 		t.err = mqutil.NewError(mqutil.ErrHttp, err.Error())
 	} else {
@@ -1107,7 +1117,7 @@ func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
 func (t *Test) GenerateParameter(paramSpec *spec.Parameter, db *mqswag.DB) (interface{}, error) {
 	tag := mqswag.GetMeqaTag(paramSpec.Description)
 	if paramSpec.Schema != nil {
-		return t.GenerateSchema("", tag, (mqswag.SchemaRef)(*paramSpec.Schema), db, 3)
+		return t.GenerateSchema(paramSpec.Name, tag, (mqswag.SchemaRef)(*paramSpec.Schema), db, 3)
 	}
 	if len(paramSpec.Schema.Value.Enum) != 0 {
 		fmt.Print("enum\n")
