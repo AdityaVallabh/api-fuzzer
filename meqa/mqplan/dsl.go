@@ -764,33 +764,25 @@ func (t *Test) CopyParent(parentTest *Test) {
 	}
 }
 
-func mixAndMatch(baseTest *Test) error {
-	var positiveDone bool
+func fuzzTest(baseTest *Test) error {
 	var wg sync.WaitGroup
-	var errPositive error
-	prod := 1
-	for _, v := range baseTest.sampleSpace {
-		prod *= len(v)
+	totalTests := 1
+	for _, choices := range baseTest.sampleSpace {
+		totalTests += len(choices)
 	}
-	fmt.Println(prod)
-	wg.Add(prod)
-	keys := getKeys(baseTest.sampleSpace)
-	var mixMatch func(i int, bodyMap map[string]interface{})
-	mixMatch = func(i int, bodyMap map[string]interface{}) {
-		// Base Case
-		if i == len(keys) {
-			if !positiveDone {
-				defer wg.Done()
-				positiveDone = true
-				errPositive = baseTest.Do()
-				return
-			}
-			go func(bodyMap map[string]interface{}, wg *sync.WaitGroup) {
+	fmt.Println("Executing tests:", totalTests)
+	errPositive := baseTest.Do()
+	for key, choices := range baseTest.sampleSpace {
+		for _, choice := range choices {
+			copyMap := mqutil.MapCopy(baseTest.BodyParams.(map[string]interface{}))
+			copyMap[key] = choice
+			wg.Add(1)
+			go func(copyMap map[string]interface{}) {
 				defer wg.Done()
 				t := baseTest.Duplicate()
 				t.op = baseTest.op
-				bodyMap[uniqueKey], _ = generateString(mqswag.SchemaRef{Value: (*spec.Schema)(&mqswag.Schema{})}, uniqueKey+"_")
-				t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), bodyMap)
+				copyMap[uniqueKey], _ = generateString(mqswag.SchemaRef{Value: (*spec.Schema)(&mqswag.Schema{})}, uniqueKey+"_")
+				t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
 				if t.Expect == nil {
 					t.Expect = make(map[string]interface{})
 				}
@@ -799,30 +791,13 @@ func mixAndMatch(baseTest *Test) error {
 				err := t.Do()
 				if err != nil {
 					resp, _ := json.Marshal(t.resp)
-					fmt.Printf("Expecting %v but got %v: %v\nRequest Body: %v", BadRequestStatus, t.resp.StatusCode(), resp, t.BodyParams)
+					fmt.Printf("Expecting %v but got %v: %v\nRequest Body: %v\n", BadRequestStatus, t.resp.StatusCode(), resp, t.BodyParams)
 				}
-			}(mqutil.MapCopy(bodyMap), &wg)
-			return
-		}
-
-		// Recursive calls
-		for _, v := range baseTest.sampleSpace[keys[i]] {
-			copyMap := mqutil.MapCopy(bodyMap)
-			copyMap[keys[i]] = v
-			mixMatch(i+1, copyMap)
+			}(copyMap)
 		}
 	}
-	mixMatch(0, make(map[string]interface{}))
 	wg.Wait()
 	return errPositive
-}
-
-func getKeys(m map[string][]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 func (t *Test) Do() error {
@@ -884,7 +859,7 @@ func (t *Test) Run(tc *TestSuite) error {
 		fmt.Printf("... Fail\n... %s\n", err.Error())
 		return err
 	}
-	return mixAndMatch(t)
+	return fuzzTest(t)
 }
 
 func StringParamsResolveWithHistory(str string, h *TestHistory) interface{} {
@@ -1183,7 +1158,6 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		}
 		result, err := generateValue(s.Value.Type, s, prefix)
 		name := strings.ReplaceAll(prefix, "_", "")
-		t.sampleSpace[name] = []interface{}{result}
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
