@@ -223,6 +223,7 @@ func main() {
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
 	baseURL := runCommand.String("h", "", "the host's base url")
 	fuzzType := runCommand.Int("f", 0, "fuzz type")
+	datasetPath := runCommand.String("l", "", "the dataset path")
 	verbose := runCommand.Bool("v", false, "turn on verbose mode")
 
 	flag.Usage = func() {
@@ -293,11 +294,11 @@ func main() {
 		return
 	}
 
-	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, fuzzType, verbose)
+	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType, verbose)
 }
 
 func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
-	testToRun, username, password, apitoken, baseURL *string, fuzzType *int, verbose *bool) {
+	testToRun, username, password, apitoken, baseURL, datasetPath *string, fuzzType *int, verbose *bool) {
 
 	mqutil.Verbose = *verbose
 
@@ -317,6 +318,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		mqutil.Logger.Printf("Error: %s", err.Error())
 	}
 	mqswag.ObjDB.Init(swagger)
+	mqswag.ReadDataset(*datasetPath)
 
 	// load test plan
 	mqplan.Current.Username = *username

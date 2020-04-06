@@ -11,8 +11,10 @@ import (
 	"strings"
 
 	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
+	"gopkg.in/yaml.v2"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
+	blns "github.com/minimaxir/big-list-of-naughty-strings/naughtystrings"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -52,6 +54,11 @@ type MeqaTag struct {
 	Property  string
 	Operation string
 	Flags     int64
+}
+
+type DatasetType struct {
+	Positive map[string][]interface{} `yaml:"positive"`
+	Negative map[string][]interface{} `yaml:"negative"`
 }
 
 func (t *MeqaTag) Equals(o *MeqaTag) bool {
@@ -124,6 +131,26 @@ func GetMeqaTag(desc string) *MeqaTag {
 }
 
 type Swagger spec.Swagger
+
+var Dataset DatasetType
+
+func ReadDataset(datasetPath string) {
+	if datasetPath == "" {
+		stringsList := blns.Unencoded()
+		interfacesList := make([]interface{}, len(stringsList))
+		for i, s := range stringsList {
+			interfacesList[i] = s
+		}
+		Dataset.Positive = make(map[string][]interface{})
+		Dataset.Positive["string"] = interfacesList
+		return
+	}
+	data, err := ioutil.ReadFile(datasetPath)
+	err = yaml.Unmarshal([]byte(data), &Dataset)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+	}
+}
 
 // Init from a file
 func CreateSwaggerFromURL(path string, meqaPath string) (*Swagger, error) {
