@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,8 +225,17 @@ func InterfaceEquals(criteria interface{}, existing interface{}) bool {
 		}
 		return true
 	}
-	if eKind == reflect.String && (cKind == reflect.Int || cKind == reflect.Float32 || cKind == reflect.Float64) {
-		return reflect.TypeOf(existing).String() == "json.Number"
+	if eKind == reflect.String && ((cKind >= reflect.Int && cKind <= reflect.Uint64) || cKind == reflect.Float32 || cKind == reflect.Float64) {
+		if reflect.TypeOf(existing).String() == "json.Number" {
+			return true
+		}
+		var e interface{}
+		var err error
+		e, err = strconv.ParseFloat(existing.(string), 64)
+		if err == nil {
+			return InterfaceEquals(criteria, e)
+		}
+		return false
 	}
 
 	cJson, _ := json.Marshal(criteria)

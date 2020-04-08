@@ -328,7 +328,7 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 			continue
 		}
 
-		dup := test.Duplicate()
+		dup := test.SchemaDuplicate()
 		dup.Strict = tc.Strict
 		if parentTest != nil {
 			dup.CopyParent(parentTest)
