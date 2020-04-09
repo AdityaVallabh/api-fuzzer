@@ -1238,6 +1238,9 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
+		if t.suite.plan.FuzzType == 3 {
+			t.sampleSpace[name] = append(t.sampleSpace[name], mqswag.Dataset.Negative[s.Value.Type]...)
+		}
 		return result, err
 	}
 
