@@ -844,7 +844,7 @@ func fuzzTest(baseTest *Test) error {
 					}
 					t.Expect[ExpectStatus] = BadRequestStatus
 					t.Expect[ExpectBody] = nil
-					expectStatus = string(BadRequestStatus)
+					expectStatus = fmt.Sprint(BadRequestStatus)
 				}
 				err := t.Do()
 				if err != nil {
