@@ -47,6 +47,12 @@ const (
 	FlagSuccess = 1 << iota
 	FlagFail
 	FlagWeak
+
+	BatchSize = 10
+)
+
+const (
+	DoneDataFile = ".mqdata.yml"
 )
 
 type MeqaTag struct {
@@ -132,21 +138,76 @@ func GetMeqaTag(desc string) *MeqaTag {
 
 type Swagger spec.Swagger
 
-var Dataset DatasetType
+var Dataset, DoneData DatasetType
 
-func ReadDataset(datasetPath string) {
+func filter(doneData, allData, dataset *map[string][]interface{}) {
+	doneMap := make(map[string]map[interface{}]bool)
+	for k, v := range *doneData {
+		doneMap[k] = make(map[interface{}]bool)
+		for _, i := range v {
+			doneMap[k][i] = true
+		}
+	}
+	allDone := true
+	for t := 0; t < 2 && allDone; t++ {
+		for k, v := range *allData {
+			for _, i := range v {
+				if doneMap[k] == nil || !doneMap[k][i] {
+					if (*dataset)[k] == nil {
+						(*dataset) = make(map[string][]interface{})
+					}
+					if (*doneData)[k] == nil {
+						(*doneData) = make(map[string][]interface{})
+					}
+					(*dataset)[k] = append((*dataset)[k], i)
+					(*doneData)[k] = append((*doneData)[k], i)
+					allDone = false
+					if len((*dataset)[k]) >= BatchSize {
+						break
+					}
+				}
+			}
+		}
+		if allDone {
+			*(doneData) = make(map[string][]interface{})
+			doneMap = make(map[string]map[interface{}]bool)
+		}
+	}
+}
+
+func ReadDataset(datasetPath, meqaPath string) {
+	readLocalDataset := func(datasetPath string) DatasetType {
+		var dataset DatasetType
+		data, err := ioutil.ReadFile(datasetPath)
+		err = yaml.Unmarshal([]byte(data), &dataset)
+		if err != nil {
+			mqutil.Logger.Printf("error: %v", err)
+		}
+		return dataset
+	}
+	var AllData DatasetType
 	if datasetPath == "" {
 		stringsList := blns.Unencoded()
 		interfacesList := make([]interface{}, len(stringsList))
 		for i, s := range stringsList {
 			interfacesList[i] = s
 		}
-		Dataset.Positive = make(map[string][]interface{})
-		Dataset.Positive["string"] = interfacesList
-		return
+		AllData.Positive = make(map[string][]interface{})
+		AllData.Positive["string"] = interfacesList
+	} else {
+		AllData = readLocalDataset(datasetPath)
 	}
-	data, err := ioutil.ReadFile(datasetPath)
-	err = yaml.Unmarshal([]byte(data), &Dataset)
+	DoneData = readLocalDataset(filepath.Join(meqaPath, DoneDataFile))
+	filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive)
+	filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative)
+}
+
+func WriteDoneData(meqaPath string) {
+	data, err := yaml.Marshal(DoneData)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+	}
+	err = ioutil.WriteFile(filepath.Join(meqaPath, DoneDataFile), data, 0644)
 	if err != nil {
 		mqutil.Logger.Printf("error: %v", err)
 	}

@@ -318,7 +318,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		mqutil.Logger.Printf("Error: %s", err.Error())
 	}
 	mqswag.ObjDB.Init(swagger)
-	mqswag.ReadDataset(*datasetPath)
+	mqswag.ReadDataset(*datasetPath, *meqaPath)
 
 	// load test plan
 	mqplan.Current.Username = *username
@@ -362,4 +362,5 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	mqplan.Current.PrintSummary()
 	os.Remove(*resultPath)
 	mqplan.Current.WriteResultToFile(*resultPath)
+	mqswag.WriteDoneData(*meqaPath)
 }
