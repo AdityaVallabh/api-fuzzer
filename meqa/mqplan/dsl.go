@@ -790,7 +790,18 @@ func (t *Test) CopyParent(parentTest *Test) {
 	}
 }
 
-func fuzzTest(baseTest *Test) error {
+func processPrevFailures(payloads []mqswag.Payload) map[string]map[interface{}]bool {
+	res := make(map[string]map[interface{}]bool)
+	for _, payload := range payloads {
+		if res[payload.Field] == nil {
+			res[payload.Field] = make(map[interface{}]bool)
+		}
+		res[payload.Field][payload.Value] = true
+	}
+	return res
+}
+
+func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
 	var wg sync.WaitGroup
 	totalTests := 1
 	for _, choices := range baseTest.sampleSpace {
@@ -803,6 +814,9 @@ func fuzzTest(baseTest *Test) error {
 	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
 	baseCopy := baseTest.Duplicate()
 	errPositive := baseTest.Do()
+	name := baseTest.Path + "_" + baseTest.Method
+	history := processPrevFailures(baseTest.suite.plan.Failures.CaseMap[name])
+	failChan := make(chan mqswag.Payload, totalTests)
 	for key, choices := range baseTest.sampleSpace {
 		for _, choice := range choices {
 			if baseTest.BodyParams == nil {
@@ -824,11 +838,11 @@ func fuzzTest(baseTest *Test) error {
 					break
 				}
 			}
-			if skip {
+			if skip || history[key][choice] {
 				continue
 			}
 			copyMap[key] = choice
-			fuzzRequest := func(copyMap map[string]interface{}) {
+			fuzzRequest := func(copyMap map[string]interface{}, fkey string) {
 				defer wg.Done()
 				t := baseCopy.Duplicate()
 				for _, cList := range t.comparisons {
@@ -849,18 +863,33 @@ func fuzzTest(baseTest *Test) error {
 				err := t.Do()
 				if err != nil {
 					fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), t.BodyParams)
+					if errPositive == nil {
+						payload := mqswag.Payload{
+							Field:    fkey,
+							Value:    copyMap[fkey],
+							Expected: expectStatus,
+							Actual:   t.resp.Status(),
+							Message:  t.resp.String(),
+						}
+						failChan <- payload
+					}
 				}
 			}
 			wg.Add(1)
 			if inParallel {
-				go fuzzRequest(copyMap)
+				go fuzzRequest(copyMap, key)
 			} else {
-				fuzzRequest(copyMap)
+				fuzzRequest(copyMap, key)
 			}
 		}
 	}
 	wg.Wait()
-	return errPositive
+	close(failChan)
+	payloads := make([]mqswag.Payload, 0, len(failChan))
+	for p := range failChan {
+		payloads = append(payloads, p)
+	}
+	return errPositive, payloads
 }
 
 func (t *Test) Do() error {
@@ -913,14 +942,14 @@ func (t *Test) Do() error {
 }
 
 // Run runs the test. Returns the test result.
-func (t *Test) Run(tc *TestSuite) error {
+func (t *Test) Run(tc *TestSuite) (error, []mqswag.Payload) {
 
 	mqutil.Logger.Print("\n--- " + t.Name)
 	fmt.Printf("\nRunning test case: %s\n", t.Name)
 	err := t.ResolveParameters(tc)
 	if err != nil {
 		fmt.Printf("... Fail\n... %s\n", err.Error())
-		return err
+		return err, nil
 	}
 	return fuzzTest(t)
 }

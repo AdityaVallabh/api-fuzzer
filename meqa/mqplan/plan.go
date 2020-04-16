@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,8 @@ import (
 )
 
 const (
-	MeqaInit = "meqa_init"
+	MeqaInit  = "meqa_init"
+	MeqaFails = ".mqfails.yml"
 )
 
 type TestParams struct {
@@ -121,6 +123,7 @@ type TestPlan struct {
 	// Run result.
 	resultList   []*Test
 	ResultCounts map[string]int
+	Failures     mqswag.FailureCases
 
 	comment  string
 	FuzzType int
@@ -185,6 +188,14 @@ func (plan *TestPlan) InitFromFile(path string, db *mqswag.DB) error {
 	return nil
 }
 
+func (plan *TestPlan) ReadFails(path string) {
+	data, err := ioutil.ReadFile(filepath.Join(path, MeqaFails))
+	err = yaml.Unmarshal([]byte(data), &plan.Failures)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+	}
+}
+
 func WriteComment(comment string, f *os.File) {
 	ar := strings.Split(comment, "\n")
 	for _, line := range ar {
@@ -237,6 +248,19 @@ func (plan *TestPlan) WriteResultToFile(path string) error {
 		tc.Tests = append(tc.Tests, test)
 	}
 	return p.DumpToFile(path)
+}
+
+func (plan *TestPlan) WriteFailures(path string) error {
+	data, err := yaml.Marshal(plan.Failures)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+		return err
+	}
+	err = ioutil.WriteFile(filepath.Join(path, MeqaFails), data, 0644)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+	}
+	return err
 }
 
 func (plan *TestPlan) LogErrors() {
@@ -338,7 +362,11 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		if parentTest != nil {
 			dup.Name = parentTest.Name // always inherit the name
 		}
-		err := dup.Run(tc)
+		err, payloads := dup.Run(tc)
+		if payloads != nil && len(payloads) > 0 {
+			name := dup.Path + "_" + dup.Method
+			plan.Failures.CaseMap[name] = append(plan.Failures.CaseMap[name], payloads...)
+		}
 		dup.err = err
 		plan.resultList = append(plan.resultList, dup)
 		if dup.schemaError != nil {

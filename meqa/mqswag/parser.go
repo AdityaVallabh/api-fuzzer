@@ -67,6 +67,18 @@ type DatasetType struct {
 	Negative map[string][]interface{} `yaml:"negative"`
 }
 
+type Payload struct {
+	Field    string      `yaml:"field"`
+	Value    interface{} `yaml:"value"`
+	Expected string      `yaml:"expected"`
+	Actual   string      `yaml:"actual"`
+	Message  string      `yaml:"message"`
+}
+
+type FailureCases struct {
+	CaseMap map[string][]Payload `yaml:"failures"`
+}
+
 func (t *MeqaTag) Equals(o *MeqaTag) bool {
 	return t.Class == o.Class && t.Property == o.Property && t.Operation == o.Operation
 }
