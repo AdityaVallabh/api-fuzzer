@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -1131,6 +1132,24 @@ func removeNulls(inputMap *map[string]interface{}) {
 	*inputMap = filteredMap
 }
 
+func validate(s mqswag.SchemaRef, c interface{}) bool {
+	if s.Value.Type == gojsonschema.TYPE_STRING {
+		if s.Value.MinLength > uint64(len(c.(string))) || (s.Value.MaxLength != nil && uint64(len(c.(string))) > *s.Value.MaxLength) {
+			return false
+		}
+	} else if s.Value.Type == gojsonschema.TYPE_NUMBER || s.Value.Type == gojsonschema.TYPE_INTEGER {
+		if (s.Value.Min != nil && *s.Value.Min > c.(float64)) || (s.Value.Max != nil && c.(float64) > *s.Value.Max) {
+			return false
+		}
+	}
+	if len(s.Value.Pattern) > 0 {
+		if ok, _ := regexp.MatchString(s.Value.Pattern, fmt.Sprint(c)); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
 	switch method {
 	case mqswag.MethodGet:
@@ -1225,7 +1244,11 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
 		if t.suite.plan.FuzzType == 1 {
-			t.sampleSpace[name] = append(t.sampleSpace[name], mqswag.Dataset.Positive[s.Value.Type]...)
+			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
+				if validate(s, c) {
+					t.sampleSpace[name] = append(t.sampleSpace[name], c)
+				}
+			}
 		}
 		if t.suite.plan.FuzzType == 2 && s.Value.Type != gojsonschema.TYPE_STRING {
 			s.Value.Format = ""
@@ -1239,7 +1262,11 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 			}
 		}
 		if t.suite.plan.FuzzType == 3 {
-			t.sampleSpace[name] = append(t.sampleSpace[name], mqswag.Dataset.Negative[s.Value.Type]...)
+			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
+				if !validate(s, c) {
+					t.sampleSpace[name] = append(t.sampleSpace[name], c)
+				}
+			}
 		}
 		return result, err
 	}
@@ -1297,8 +1324,8 @@ func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
 		pattern = s.Value.Pattern
 		length = len(s.Value.Pattern) * 2
 	} else {
-		pattern = prefix + "\\d+"
-		length = len(prefix) + 5
+		pattern = prefix + "\\d{3,}"
+		length = len(prefix) * 3
 	}
 	str, err := reggen.Generate(pattern, length)
 	if err != nil {
