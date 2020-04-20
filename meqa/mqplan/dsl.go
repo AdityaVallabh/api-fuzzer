@@ -846,9 +846,10 @@ func fuzzTest(baseTest *Test) error {
 	errPositive := baseTest.Do()
 	if baseTest.BodyParams != nil {
 		for key, choices := range baseTest.sampleSpace {
-			if uniqueKeys[key] || inParallel {
+			if !(inParallel && uniqueKeys[key]) {
 				for _, choice := range choices {
 					copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
+					baseCopy.generateUniqueKeys(copyMap)
 					copyMap[key] = choice
 					wg.Add(1)
 					if inParallel {
