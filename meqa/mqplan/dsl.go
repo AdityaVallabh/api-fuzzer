@@ -47,10 +47,10 @@ var (
 		gojsonschema.TYPE_NUMBER,
 		gojsonschema.TYPE_STRING,
 	}
-	uniqueKeys = [...]string{
-		"name",
-		"email",
-		"fieldValue",
+	uniqueKeys = map[string]bool{
+		"name":       true,
+		"email":      true,
+		"fieldValue": true,
 	}
 )
 
@@ -790,6 +790,46 @@ func (t *Test) CopyParent(parentTest *Test) {
 		}
 	}
 }
+func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
+	bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
+	_, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
+	propSchemas := schema.GetProperties(t.db.Swagger)
+	for uniqueKey := range uniqueKeys {
+		if _, ok := propSchemas[uniqueKey]; ok {
+			prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
+			bodyMap[uniqueKey], _ = generateString(prop, uniqueKey+"_")
+		}
+	}
+}
+
+func fuzzRequest(baseCopy *Test, copyMap map[string]interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	t := baseCopy.Duplicate()
+	for _, cList := range t.comparisons {
+		for _, c := range cList {
+			c.new = mqutil.MapReplace(c.new, copyMap)
+		}
+	}
+	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
+	expectStatus := "success"
+	if t.suite.plan.FuzzType >= 2 {
+		if t.Expect == nil {
+			t.Expect = make(map[string]interface{})
+		}
+		t.Expect[ExpectStatus] = BadRequestStatus
+		t.Expect[ExpectBody] = nil
+		expectStatus = fmt.Sprint(BadRequestStatus)
+	}
+	err := t.Do()
+	if err != nil {
+		b, err := json.Marshal(t.BodyParams)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), string(b))
+	}
+}
 
 func fuzzTest(baseTest *Test) error {
 	var wg sync.WaitGroup
@@ -804,59 +844,19 @@ func fuzzTest(baseTest *Test) error {
 	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
 	baseCopy := baseTest.Duplicate()
 	errPositive := baseTest.Do()
-	for key, choices := range baseTest.sampleSpace {
-		for _, choice := range choices {
-			if baseTest.BodyParams == nil {
-				continue
-			}
-			copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
-			skip := false
-			bodySchema := (mqswag.SchemaRef)(*baseCopy.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
-			_, schema := baseCopy.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
-			for _, uniqueKey := range uniqueKeys {
-				propSchemas := schema.GetProperties(baseCopy.db.Swagger)
-				if _, ok := propSchemas[uniqueKey]; !ok {
-					continue
-				}
-				prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
-				copyMap[uniqueKey], _ = generateString(prop, uniqueKey+"_")
-				if key == uniqueKey && inParallel {
-					skip = true
-					break
-				}
-			}
-			if skip {
-				continue
-			}
-			copyMap[key] = choice
-			fuzzRequest := func(copyMap map[string]interface{}) {
-				defer wg.Done()
-				t := baseCopy.Duplicate()
-				for _, cList := range t.comparisons {
-					for _, c := range cList {
-						c.new = mqutil.MapReplace(c.new, copyMap)
+	if baseTest.BodyParams != nil {
+		for key, choices := range baseTest.sampleSpace {
+			if uniqueKeys[key] || inParallel {
+				for _, choice := range choices {
+					copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
+					copyMap[key] = choice
+					wg.Add(1)
+					if inParallel {
+						go fuzzRequest(baseCopy, copyMap, &wg)
+					} else {
+						fuzzRequest(baseCopy, copyMap, &wg)
 					}
 				}
-				t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
-				expectStatus := "success"
-				if t.suite.plan.FuzzType >= 2 {
-					if t.Expect == nil {
-						t.Expect = make(map[string]interface{})
-					}
-					t.Expect[ExpectStatus] = BadRequestStatus
-					t.Expect[ExpectBody] = nil
-					expectStatus = fmt.Sprint(BadRequestStatus)
-				}
-				err := t.Do()
-				if err != nil {
-					fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), t.BodyParams)
-				}
-			}
-			wg.Add(1)
-			if inParallel {
-				go fuzzRequest(copyMap)
-			} else {
-				fuzzRequest(copyMap)
 			}
 		}
 	}
