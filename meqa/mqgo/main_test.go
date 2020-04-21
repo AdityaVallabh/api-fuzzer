@@ -15,14 +15,12 @@ func TestMqgo(t *testing.T) {
 	planPath := filepath.Join(meqaPath, "simple.yml")
 	resultPath := filepath.Join(meqaPath, "result.yml")
 	testToRun := "all"
-	baseURL := ""
-	username := ""
-	password := ""
-	apitoken := ""
-	verbose := false
+	baseURL, username, password, apitoken, dataset := "", "", "", "", ""
+	fuzzType := 0
+	repro, verbose := false, false
 
 	mqutil.Logger = mqutil.NewFileLogger(filepath.Join(meqaPath, "mqgo.log"))
-	runMeqa(&meqaPath, &swaggerPath, &planPath, &resultPath, &testToRun, &username, &password, &apitoken, &baseURL, &verbose)
+	runMeqa(&meqaPath, &swaggerPath, &planPath, &resultPath, &testToRun, &username, &password, &apitoken, &baseURL, &dataset, &fuzzType, &repro, &verbose)
 }
 
 func TestMain(m *testing.M) {
