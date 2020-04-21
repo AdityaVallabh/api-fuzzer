@@ -802,6 +802,28 @@ func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
 	}
 }
 
+func deleteResource(t *Test) {
+	var result map[string]interface{}
+	json.Unmarshal([]byte(t.resp.String()), &result)
+	if id, ok := result["id"]; ok {
+		t.Method = mqswag.MethodDelete
+		t.BodyParams = nil
+		var dTest *Test
+		for _, test := range t.suite.Tests {
+			if test.Method == mqswag.MethodDelete {
+				dTest = test
+			}
+		}
+		if dTest != nil {
+			dTest = dTest.Duplicate()
+			dTest.PathParams["id"] = id
+			dTest.op = spec.NewOperation()
+			dTest.comparisons = t.comparisons
+			dTest.Do()
+		}
+	}
+}
+
 func fuzzRequest(baseCopy *Test, copyMap map[string]interface{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	t := baseCopy.Duplicate()
@@ -828,6 +850,9 @@ func fuzzRequest(baseCopy *Test, copyMap map[string]interface{}, wg *sync.WaitGr
 			return
 		}
 		fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), string(b))
+	}
+	if t.Method == mqswag.MethodPost && t.resp.StatusCode() == 200 {
+		deleteResource(t)
 	}
 }
 
