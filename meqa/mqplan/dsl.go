@@ -47,10 +47,10 @@ var (
 		gojsonschema.TYPE_NUMBER,
 		gojsonschema.TYPE_STRING,
 	}
-	uniqueKeys = [...]string{
-		"name",
-		"email",
-		"fieldValue",
+	uniqueKeys = map[string]bool{
+		"name":       true,
+		"email":      true,
+		"fieldValue": true,
 	}
 )
 
@@ -790,6 +790,79 @@ func (t *Test) CopyParent(parentTest *Test) {
 		}
 	}
 }
+func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
+	bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
+	_, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
+	propSchemas := schema.GetProperties(t.db.Swagger)
+	for uniqueKey := range uniqueKeys {
+		if _, ok := propSchemas[uniqueKey]; ok {
+			prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
+			bodyMap[uniqueKey], _ = generateString(prop, uniqueKey+"_")
+		}
+	}
+}
+
+func deleteResource(t *Test) {
+	var result map[string]interface{}
+	json.Unmarshal([]byte(t.resp.String()), &result)
+	if id, ok := result["id"]; ok {
+		t.Method = mqswag.MethodDelete
+		t.BodyParams = nil
+		var dTest *Test
+		for _, test := range t.suite.Tests {
+			if test.Method == mqswag.MethodDelete {
+				dTest = test
+			}
+		}
+		if dTest != nil {
+			dTest = dTest.Duplicate()
+			dTest.PathParams["id"] = id
+			dTest.op = spec.NewOperation()
+			dTest.comparisons = t.comparisons
+			dTest.Do()
+		}
+	}
+}
+
+func fuzzRequest(baseCopy *Test, copyMap map[string]interface{}, fkey string, failChan chan<- mqswag.Payload, wg *sync.WaitGroup) {
+	defer wg.Done()
+	t := baseCopy.Duplicate()
+	for _, cList := range t.comparisons {
+		for _, c := range cList {
+			c.new = mqutil.MapReplace(c.new, copyMap)
+		}
+	}
+	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
+	expectStatus := "success"
+	if t.suite.plan.FuzzType >= 2 {
+		if t.Expect == nil {
+			t.Expect = make(map[string]interface{})
+		}
+		t.Expect[ExpectStatus] = BadRequestStatus
+		t.Expect[ExpectBody] = nil
+		expectStatus = fmt.Sprint(BadRequestStatus)
+	}
+	err := t.Do()
+	if err != nil {
+		payload := mqswag.Payload{
+			Field:    fkey,
+			Value:    copyMap[fkey],
+			Expected: expectStatus,
+			Actual:   t.resp.Status(),
+			Message:  t.resp.String(),
+		}
+		failChan <- payload
+		b, err := json.Marshal(t.BodyParams)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), string(b))
+	}
+	if t.Method == mqswag.MethodPost && t.resp.StatusCode() == 200 {
+		deleteResource(t)
+	}
+}
 
 func processPrevFailures(payloads []mqswag.Payload) map[string]map[interface{}]bool {
 	res := make(map[string]map[interface{}]bool)
@@ -818,69 +891,20 @@ func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
 	name := baseTest.Path + "_" + baseTest.Method
 	history := processPrevFailures(baseTest.suite.plan.Failures.CaseMap[name])
 	failChan := make(chan mqswag.Payload, totalTests)
-	for key, choices := range baseTest.sampleSpace {
-		for _, choice := range choices {
-			if baseTest.BodyParams == nil {
-				continue
-			}
-			copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
-			skip := false
-			bodySchema := (mqswag.SchemaRef)(*baseCopy.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
-			_, schema := baseCopy.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
-			for _, uniqueKey := range uniqueKeys {
-				propSchemas := schema.GetProperties(baseCopy.db.Swagger)
-				if _, ok := propSchemas[uniqueKey]; !ok {
-					continue
-				}
-				prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
-				copyMap[uniqueKey], _ = generateString(prop, uniqueKey+"_")
-				if key == uniqueKey && inParallel {
-					skip = true
-					break
-				}
-			}
-			if skip || history[key][choice] {
-				continue
-			}
-			copyMap[key] = choice
-			fuzzRequest := func(copyMap map[string]interface{}, fkey string) {
-				defer wg.Done()
-				t := baseCopy.Duplicate()
-				for _, cList := range t.comparisons {
-					for _, c := range cList {
-						c.new = mqutil.MapReplace(c.new, copyMap)
+	if baseTest.BodyParams != nil {
+		for key, choices := range baseTest.sampleSpace {
+			for _, choice := range choices {
+				if !(history[key][choice]) {
+					copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
+					baseCopy.generateUniqueKeys(copyMap)
+					copyMap[key] = choice
+					wg.Add(1)
+					if inParallel {
+						go fuzzRequest(baseCopy, copyMap, key, failChan, &wg)
+					} else {
+						fuzzRequest(baseCopy, copyMap, key, failChan, &wg)
 					}
 				}
-				t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
-				expectStatus := "success"
-				if t.suite.plan.FuzzType >= 2 {
-					if t.Expect == nil {
-						t.Expect = make(map[string]interface{})
-					}
-					t.Expect[ExpectStatus] = BadRequestStatus
-					t.Expect[ExpectBody] = nil
-					expectStatus = fmt.Sprint(BadRequestStatus)
-				}
-				err := t.Do()
-				if err != nil {
-					fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), t.BodyParams)
-					if errPositive == nil {
-						payload := mqswag.Payload{
-							Field:    fkey,
-							Value:    copyMap[fkey],
-							Expected: expectStatus,
-							Actual:   t.resp.Status(),
-							Message:  t.resp.String(),
-						}
-						failChan <- payload
-					}
-				}
-			}
-			wg.Add(1)
-			if inParallel {
-				go fuzzRequest(copyMap, key)
-			} else {
-				fuzzRequest(copyMap, key)
 			}
 		}
 	}
