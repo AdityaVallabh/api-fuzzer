@@ -891,10 +891,20 @@ func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
 	name := baseTest.Path + "_" + baseTest.Method
 	history := processPrevFailures(baseTest.suite.plan.Failures.CaseMap[name])
 	failChan := make(chan mqswag.Payload, totalTests)
+	samples := baseTest.sampleSpace
+	if baseTest.suite.plan.Repro {
+		samples = make(map[string][]interface{})
+		for k, m := range history {
+			samples[k] = make([]interface{}, 0, len(m))
+			for v := range m {
+				samples[k] = append(samples[k], v)
+			}
+		}
+	}
 	if baseTest.BodyParams != nil {
-		for key, choices := range baseTest.sampleSpace {
+		for key, choices := range samples {
 			for _, choice := range choices {
-				if !(history[key][choice]) {
+				if baseTest.suite.plan.Repro || !(history[key][choice]) {
 					copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
 					baseCopy.generateUniqueKeys(copyMap)
 					copyMap[key] = choice

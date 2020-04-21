@@ -223,6 +223,7 @@ func main() {
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
 	baseURL := runCommand.String("h", "", "the host's base url")
 	fuzzType := runCommand.Int("f", 0, "fuzz type")
+	repro := runCommand.Bool("re", false, "reproduce failures")
 	datasetPath := runCommand.String("l", "", "the dataset path")
 	verbose := runCommand.Bool("v", false, "turn on verbose mode")
 
@@ -294,11 +295,11 @@ func main() {
 		return
 	}
 
-	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType, verbose)
+	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType, repro, verbose)
 }
 
 func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
-	testToRun, username, password, apitoken, baseURL, datasetPath *string, fuzzType *int, verbose *bool) {
+	testToRun, username, password, apitoken, baseURL, datasetPath *string, fuzzType *int, repro, verbose *bool) {
 
 	mqutil.Verbose = *verbose
 
@@ -318,8 +319,12 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		mqutil.Logger.Printf("Error: %s", err.Error())
 	}
 	mqswag.ObjDB.Init(swagger)
-	mqswag.ReadDataset(*datasetPath, *meqaPath)
-	mqplan.Current.ReadFails(*meqaPath)
+	if *fuzzType >= 1 {
+		mqplan.Current.ReadFails(*meqaPath)
+		if !*repro {
+			mqswag.ReadDataset(*datasetPath, *meqaPath)
+		}
+	}
 
 	// load test plan
 	mqplan.Current.Username = *username
@@ -330,6 +335,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	}
 	mqplan.Current.BaseURL = *baseURL
 	mqplan.Current.FuzzType = *fuzzType
+	mqplan.Current.Repro = *repro
 	err = mqplan.Current.InitFromFile(*testPlanFile, &mqswag.ObjDB)
 	if err != nil {
 		mqutil.Logger.Printf("Error loading test plan: %s", err.Error())
@@ -363,6 +369,10 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	mqplan.Current.PrintSummary()
 	os.Remove(*resultPath)
 	mqplan.Current.WriteResultToFile(*resultPath)
-	mqplan.Current.WriteFailures(*meqaPath)
-	mqswag.WriteDoneData(*meqaPath)
+	if *fuzzType >= 1 {
+		mqplan.Current.WriteFailures(*meqaPath)
+		if !*repro {
+			mqswag.WriteDoneData(*meqaPath)
+		}
+	}
 }

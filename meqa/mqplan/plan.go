@@ -127,6 +127,7 @@ type TestPlan struct {
 
 	comment  string
 	FuzzType int
+	Repro    bool
 }
 
 // Add a new TestSuite, returns whether the Case is successfully added.
@@ -365,6 +366,9 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		err, payloads := dup.Run(tc)
 		if payloads != nil && len(payloads) > 0 {
 			name := dup.Path + "_" + dup.Method
+			if plan.Repro {
+				plan.Failures.CaseMap[name] = make([]mqswag.Payload, 0, len(payloads))
+			}
 			plan.Failures.CaseMap[name] = append(plan.Failures.CaseMap[name], payloads...)
 		}
 		dup.err = err
