@@ -824,9 +824,8 @@ func deleteResource(t *Test) {
 	}
 }
 
-func fuzzRequest(baseCopy *Test, copyMap map[string]interface{}, fkey string, failChan chan<- mqswag.Payload, wg *sync.WaitGroup) {
+func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan chan<- mqswag.Payload, wg *sync.WaitGroup) {
 	defer wg.Done()
-	t := baseCopy.Duplicate()
 	for _, cList := range t.comparisons {
 		for _, c := range cList {
 			c.new = mqutil.MapReplace(c.new, copyMap)
@@ -877,20 +876,13 @@ func processPrevFailures(payloads []mqswag.Payload) map[string]map[interface{}]b
 
 func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
 	var wg sync.WaitGroup
-	totalTests := 1
-	for _, choices := range baseTest.sampleSpace {
-		totalTests += len(choices)
-	}
 	inParallel := true
 	if baseTest.Method == mqswag.MethodPut {
 		inParallel = false
 	}
-	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
 	baseCopy := baseTest.Duplicate()
-	errPositive := baseTest.Do()
 	name := baseTest.Path + "_" + baseTest.Method
 	history := processPrevFailures(baseTest.suite.plan.Failures.CaseMap[name])
-	failChan := make(chan mqswag.Payload, totalTests)
 	samples := baseTest.sampleSpace
 	if baseTest.suite.plan.Repro {
 		samples = make(map[string][]interface{})
@@ -901,18 +893,30 @@ func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
 			}
 		}
 	}
-	if baseTest.BodyParams != nil {
+	totalTests := 1
+	for key, choices := range samples {
+		for _, choice := range choices {
+			if baseTest.suite.plan.Repro || !(history[key][choice]) {
+				totalTests++
+			}
+		}
+	}
+	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
+	failChan := make(chan mqswag.Payload, totalTests)
+	errPositive := baseTest.Do()
+	if baseTest.BodyParams != nil && inParallel {
 		for key, choices := range samples {
 			for _, choice := range choices {
 				if baseTest.suite.plan.Repro || !(history[key][choice]) {
-					copyMap := mqutil.MapCopy(baseCopy.BodyParams.(map[string]interface{}))
-					baseCopy.generateUniqueKeys(copyMap)
+					testCopy := baseCopy.Duplicate()
+					copyMap := mqutil.MapCopy(testCopy.BodyParams.(map[string]interface{}))
+					testCopy.generateUniqueKeys(copyMap)
 					copyMap[key] = choice
 					wg.Add(1)
 					if inParallel {
-						go fuzzRequest(baseCopy, copyMap, key, failChan, &wg)
+						go fuzzRequest(testCopy, copyMap, key, failChan, &wg)
 					} else {
-						fuzzRequest(baseCopy, copyMap, key, failChan, &wg)
+						fuzzRequest(testCopy, copyMap, key, failChan, &wg)
 					}
 				}
 			}
@@ -961,10 +965,18 @@ func (t *Test) Do() error {
 		}
 		t.stopTime = time.Now()
 		fmt.Printf("... call completed: %f seconds\n", t.stopTime.Sub(t.startTime).Seconds())
-		if resp.StatusCode() != TooManyRequestsStatus {
+		if err == nil && resp.StatusCode() != TooManyRequestsStatus {
 			break
 		}
 		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000)))
+	}
+	tries := MaxRetries
+	for mqswag.MethodDelete == t.Method && resp.StatusCode() != 204 && tries >= 0 {
+		fmt.Println("Delete on ", path, "returned", resp.Status(), ". Retrying...")
+		req.Header["Cookie"] = nil
+		time.Sleep(time.Second)
+		resp, err = req.Delete(path)
+		tries--
 	}
 	if err != nil {
 		t.err = mqutil.NewError(mqutil.ErrHttp, err.Error())
