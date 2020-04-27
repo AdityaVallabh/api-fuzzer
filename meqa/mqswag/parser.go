@@ -48,11 +48,12 @@ const (
 	FlagFail
 	FlagWeak
 
-	BatchSize = 10
+	BatchSize = 100
 )
 
 const (
-	DoneDataFile = ".mqdata.yml"
+	DoneDataFile   = ".mqdata.yml"
+	UniqueKeysFile = "uniqueKeys.yml"
 )
 
 type MeqaTag struct {
@@ -77,6 +78,10 @@ type Payload struct {
 
 type FailureCases struct {
 	CaseMap map[string][]Payload `yaml:"failures"`
+}
+
+type UniqueKeysStruct struct {
+	Keys []string `yaml:"uniqueKeys"`
 }
 
 func (t *MeqaTag) Equals(o *MeqaTag) bool {
@@ -150,6 +155,26 @@ func GetMeqaTag(desc string) *MeqaTag {
 
 type Swagger spec.Swagger
 
+var UniqueKeys map[string]bool
+
+func ReadUniqueKeys(meqaPath string) {
+	var uniqueKeysStruct UniqueKeysStruct
+	data, err := ioutil.ReadFile(filepath.Join(meqaPath, UniqueKeysFile))
+	if err != nil {
+		fmt.Println("File not found:", err)
+		return
+	}
+	err = yaml.Unmarshal([]byte(data), &uniqueKeysStruct)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+		return
+	}
+	UniqueKeys = make(map[string]bool)
+	for _, key := range uniqueKeysStruct.Keys {
+		UniqueKeys[key] = true
+	}
+}
+
 var Dataset, DoneData DatasetType
 
 func filter(doneData, allData, dataset *map[string][]interface{}) {
@@ -191,6 +216,9 @@ func ReadDataset(datasetPath, meqaPath string) {
 	readLocalDataset := func(datasetPath string) DatasetType {
 		var dataset DatasetType
 		data, err := ioutil.ReadFile(datasetPath)
+		if err != nil {
+			fmt.Println("File not found:", err)
+		}
 		err = yaml.Unmarshal([]byte(data), &dataset)
 		if err != nil {
 			mqutil.Logger.Printf("error: %v", err)

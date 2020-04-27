@@ -363,7 +363,7 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		if parentTest != nil {
 			dup.Name = parentTest.Name // always inherit the name
 		}
-		err, payloads := dup.Run(tc)
+		payloads, err := dup.Run(tc)
 		if payloads != nil && len(payloads) > 0 {
 			name := dup.Path + "_" + dup.Method
 			if plan.Repro {

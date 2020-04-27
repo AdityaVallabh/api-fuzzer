@@ -319,7 +319,8 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		mqutil.Logger.Printf("Error: %s", err.Error())
 	}
 	mqswag.ObjDB.Init(swagger)
-	if *fuzzType >= 1 {
+	if *fuzzType >= mqplan.PositiveFuzz {
+		mqswag.ReadUniqueKeys(*meqaPath)
 		mqplan.Current.ReadFails(*meqaPath)
 		if !*repro {
 			mqswag.ReadDataset(*datasetPath, *meqaPath)
@@ -369,7 +370,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	mqplan.Current.PrintSummary()
 	os.Remove(*resultPath)
 	mqplan.Current.WriteResultToFile(*resultPath)
-	if *fuzzType >= 1 {
+	if *fuzzType >= mqplan.PositiveFuzz {
 		mqplan.Current.WriteFailures(*meqaPath)
 		if !*repro {
 			mqswag.WriteDoneData(*meqaPath)

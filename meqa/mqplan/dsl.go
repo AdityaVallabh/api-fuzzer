@@ -36,6 +36,10 @@ const (
 	MaxRetries            = 10
 	BadRequestStatus      = 400
 	TooManyRequestsStatus = 429
+
+	PositiveFuzz = 1
+	DataTypeFuzz = 2
+	NegativeFuzz = 3
 )
 
 type Datum interface{}
@@ -46,11 +50,6 @@ var (
 		gojsonschema.TYPE_INTEGER,
 		gojsonschema.TYPE_NUMBER,
 		gojsonschema.TYPE_STRING,
-	}
-	uniqueKeys = map[string]bool{
-		"name":       true,
-		"email":      true,
-		"fieldValue": true,
 	}
 )
 
@@ -794,7 +793,7 @@ func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
 	bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
 	_, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
 	propSchemas := schema.GetProperties(t.db.Swagger)
-	for uniqueKey := range uniqueKeys {
+	for uniqueKey := range mqswag.UniqueKeys {
 		if _, ok := propSchemas[uniqueKey]; ok {
 			prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
 			bodyMap[uniqueKey], _ = generateString(prop, uniqueKey+"_")
@@ -833,7 +832,7 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan 
 	}
 	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
 	expectStatus := "success"
-	if t.suite.plan.FuzzType >= 2 {
+	if t.suite.plan.FuzzType >= DataTypeFuzz {
 		if t.Expect == nil {
 			t.Expect = make(map[string]interface{})
 		}
@@ -874,50 +873,54 @@ func processPrevFailures(payloads []mqswag.Payload) map[string]map[interface{}]b
 	return res
 }
 
-func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
-	var wg sync.WaitGroup
-	inParallel := true
-	if baseTest.Method == mqswag.MethodPut {
-		inParallel = false
-	}
-	baseCopy := baseTest.Duplicate()
-	name := baseTest.Path + "_" + baseTest.Method
-	history := processPrevFailures(baseTest.suite.plan.Failures.CaseMap[name])
-	samples := baseTest.sampleSpace
-	if baseTest.suite.plan.Repro {
-		samples = make(map[string][]interface{})
-		for k, m := range history {
-			samples[k] = make([]interface{}, 0, len(m))
-			for v := range m {
-				samples[k] = append(samples[k], v)
+func (t *Test) getSamples() (map[string][]interface{}, int) {
+	samples, totalTests := make(map[string][]interface{}), 1
+	if t.BodyParams != nil {
+		name := t.Path + "_" + t.Method
+		history := processPrevFailures(t.suite.plan.Failures.CaseMap[name])
+		if t.suite.plan.Repro {
+			for key, choices := range history {
+				samples[key] = make([]interface{}, 0, len(choices))
+				for choice := range choices {
+					samples[key] = append(samples[key], choice)
+					totalTests++
+				}
+			}
+		} else {
+			for key, choices := range t.sampleSpace {
+				samples[key] = make([]interface{}, 0, len(choices))
+				for _, choice := range choices {
+					if !(history[key][choice]) {
+						samples[key] = append(samples[key], choice)
+						totalTests++
+					}
+				}
 			}
 		}
 	}
-	totalTests := 1
-	for key, choices := range samples {
-		for _, choice := range choices {
-			if baseTest.suite.plan.Repro || !(history[key][choice]) {
-				totalTests++
-			}
-		}
-	}
+	return samples, totalTests
+}
+
+func fuzzTest(baseTest *Test) ([]mqswag.Payload, error) {
+	samples, totalTests := baseTest.getSamples()
+	inParallel := baseTest.Method != mqswag.MethodPut
 	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
-	failChan := make(chan mqswag.Payload, totalTests)
+	baseCopy := baseTest.Duplicate()
 	errPositive := baseTest.Do()
-	if baseTest.BodyParams != nil && inParallel {
+	failChan := make(chan mqswag.Payload, totalTests)
+	var wg sync.WaitGroup
+	if errPositive == nil {
 		for key, choices := range samples {
 			for _, choice := range choices {
-				if baseTest.suite.plan.Repro || !(history[key][choice]) {
-					testCopy := baseCopy.Duplicate()
-					copyMap := mqutil.MapCopy(testCopy.BodyParams.(map[string]interface{}))
-					testCopy.generateUniqueKeys(copyMap)
-					copyMap[key] = choice
-					wg.Add(1)
-					if inParallel {
-						go fuzzRequest(testCopy, copyMap, key, failChan, &wg)
-					} else {
-						fuzzRequest(testCopy, copyMap, key, failChan, &wg)
-					}
+				testCopy := baseCopy.Duplicate()
+				copyMap := mqutil.MapCopy(testCopy.BodyParams.(map[string]interface{}))
+				testCopy.generateUniqueKeys(copyMap)
+				copyMap[key] = choice
+				wg.Add(1)
+				if inParallel {
+					go fuzzRequest(testCopy, copyMap, key, failChan, &wg)
+				} else {
+					fuzzRequest(testCopy, copyMap, key, failChan, &wg)
 				}
 			}
 		}
@@ -928,7 +931,7 @@ func fuzzTest(baseTest *Test) (error, []mqswag.Payload) {
 	for p := range failChan {
 		payloads = append(payloads, p)
 	}
-	return errPositive, payloads
+	return payloads, errPositive
 }
 
 func (t *Test) Do() error {
@@ -989,14 +992,14 @@ func (t *Test) Do() error {
 }
 
 // Run runs the test. Returns the test result.
-func (t *Test) Run(tc *TestSuite) (error, []mqswag.Payload) {
+func (t *Test) Run(tc *TestSuite) ([]mqswag.Payload, error) {
 
 	mqutil.Logger.Print("\n--- " + t.Name)
 	fmt.Printf("\nRunning test case: %s\n", t.Name)
 	err := t.ResolveParameters(tc)
 	if err != nil {
 		fmt.Printf("... Fail\n... %s\n", err.Error())
-		return err, nil
+		return nil, err
 	}
 	return fuzzTest(t)
 }
@@ -1318,14 +1321,14 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
-		if t.suite.plan.FuzzType == 1 {
+		if t.suite.plan.FuzzType == PositiveFuzz {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
 				if validate(s, c) {
 					t.sampleSpace[name] = append(t.sampleSpace[name], c)
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == 2 && s.Value.Type != gojsonschema.TYPE_STRING {
+		if t.suite.plan.FuzzType == DataTypeFuzz && s.Value.Type != gojsonschema.TYPE_STRING {
 			s.Value.Format = ""
 			for _, valueType := range dataTypes {
 				if valueType != s.Value.Type {
@@ -1336,7 +1339,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == 3 {
+		if t.suite.plan.FuzzType == NegativeFuzz {
 			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
 				if !validate(s, c) {
 					t.sampleSpace[name] = append(t.sampleSpace[name], c)
@@ -1399,7 +1402,7 @@ func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
 		pattern = s.Value.Pattern
 		length = len(s.Value.Pattern) * 2
 	} else {
-		pattern = prefix + "\\d{3,}"
+		pattern = prefix + "\\d{6,}"
 		length = len(prefix) * 3
 	}
 	str, err := reggen.Generate(pattern, length)
