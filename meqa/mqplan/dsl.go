@@ -285,7 +285,7 @@ func (t *Test) AddObjectComparison(tag *mqswag.MeqaTag, obj map[string]interface
 	}
 }
 
-func (t *Test) CompareGetResult(className string, associations map[string]map[string]interface{}, resultArray []interface{}, single bool) error {
+func (t *Test) CompareGetResult(className string, associations map[string]map[string]interface{}, resultArray []interface{}) (int, int, string) {
 
 	var dbArray []interface{}
 	if len(t.comparisons[className]) > 0 {
@@ -297,69 +297,59 @@ func (t *Test) CompareGetResult(className string, associations map[string]map[st
 	}
 	mqutil.Logger.Printf("got %d entries from db", len(dbArray))
 
-	// TODO optimize later. Should sort first.
-	if len(t.comparisons[className]) > 0 {
-		for _, comp := range t.comparisons[className] {
-			compFound := false
-			for _, entry := range resultArray {
-				// One of the comparison should match
-				entryMap, _ := entry.(map[string]interface{})
-				if entryMap == nil {
-					// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
-					// match we will catch that when we verify schema.
-					continue
-				}
-				if mqutil.InterfaceEquals(comp.oldUsed, entryMap) {
-					compFound = true
-					break
-				}
+	numFound, numMiss := 0, 0
+	var missing string
+	for _, dbEntry := range dbArray {
+		dbentryMap, _ := dbEntry.(map[string]interface{})
+		found := false
+		for _, entry := range resultArray {
+			entryMap, _ := entry.(map[string]interface{})
+			if entryMap == nil {
+				// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
+				// match we will catch that when we verify schema.
+				continue
 			}
-			if !compFound {
-				b, _ := json.Marshal(comp)
-				c, _ := json.Marshal(resultArray[0].(map[string]interface{}))
-				fmt.Printf("... checking GET result against client DB. Result doesn't match query. Fail\n")
-				t.responseError = fmt.Sprintf("Expected:\n%v\nFound:\n%v\n", string(b), string(c))
-				if len(resultArray) > 1 {
-					t.responseError = t.responseError.(string) + fmt.Sprintf("... and %v other objects.\n", len(resultArray)-1)
-				}
-				return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("result returned doesn't contain query parameters:\n%s\n",
-					string(b)))
+			if dbentryMap != nil && mqutil.InterfaceEquals(dbentryMap, entryMap) {
+				found = true
+				break
 			}
+		}
+		if found {
+			numFound++
+		} else {
+			b, _ := json.Marshal(dbEntry)
+			missing = string(b)
+			numMiss++
 		}
 	}
-	if t.Strict {
-		numFound, numMiss := 0, 0
-		var missing string
-		for _, dbEntry := range dbArray {
-			dbentryMap, _ := dbEntry.(map[string]interface{})
-			found := false
-			for _, entry := range resultArray {
-				entryMap, _ := entry.(map[string]interface{})
-				if entryMap == nil {
-					// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
-					// match we will catch that when we verify schema.
-					continue
-				}
-				if dbentryMap != nil && mqutil.InterfaceEquals(dbentryMap, entryMap) {
-					found = true
-					break
-				}
-			}
-			if found {
-				numFound++
-			} else {
-				b, _ := json.Marshal(dbEntry)
-				missing = string(b)
-				numMiss++
-			}
+	return numFound, numMiss, missing
+}
+
+func (t *Test) ResponseInDb(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
+	fmt.Printf("... checking GET result against client. ")
+	numFound, numMiss, _ := t.CompareGetResult(className, associations, resultArray)
+	if numFound < len(resultArray) {
+		if numMiss == 0 {
+			fmt.Printf("No objects in client.\n")
+			return nil
 		}
-		if (single && numFound == 0 && numMiss != 0) || (!single && numMiss > 0) {
-			fmt.Printf("... checking GET result against client DB. Result not found on remote. Fail\n")
-			t.responseError = fmt.Sprintf("%v local objects missing from a list of %v on remote\nMissing: %s\n", len(dbArray)-numFound, len(resultArray), missing)
-			return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("client object not found in results returned\n"))
-		}
+		fmt.Printf("Result not found on client. Fail\n")
+		t.responseError = fmt.Sprintf("%v remote objects missing in client\n", len(resultArray)-numFound)
+		return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("remote object not found in client\n"))
 	}
-	fmt.Printf("... checking GET result against client DB. Success\n")
+	fmt.Printf("Success\n")
+	return nil
+}
+
+func (t *Test) DbInResponse(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
+	fmt.Printf("... checking client objects against GET result. ")
+	_, numMiss, missing := t.CompareGetResult(className, associations, resultArray)
+	if numMiss > 0 {
+		fmt.Printf("Result not found on remote. Fail\n")
+		t.responseError = fmt.Sprintf("%v local objects missing from a list of %v on remote\nMissing: %s\n", numMiss, len(resultArray), missing)
+		return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("client object not found in results returned\n"))
+	}
+	fmt.Printf("Success\n")
 	return nil
 }
 
@@ -368,15 +358,15 @@ func (t *Test) ProcessOneComparison(className string, method string, comp *Compa
 	associations map[string]map[string]interface{}, collection map[string][]interface{}) error {
 
 	if method == mqswag.MethodDelete {
-		fmt.Printf("... deleting entry from client DB. Success\n")
+		mqutil.Logger.Printf("... deleting entry from client DB. Success\n")
 		t.suite.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, -1)
 		t.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, -1)
 	} else if method == mqswag.MethodPost && comp.new != nil {
-		fmt.Printf("... adding entry to client DB. Success\n")
+		mqutil.Logger.Printf("... adding entry to client DB. Success\n")
 		t.suite.db.Insert(className, comp.new, associations)
 		return t.db.Insert(className, comp.new, associations)
 	} else if (method == mqswag.MethodPatch || method == mqswag.MethodPut) && comp.new != nil {
-		fmt.Printf("... updating entry in client DB. Success\n")
+		mqutil.Logger.Printf("... updating entry in client DB. Success\n")
 		t.suite.db.Update(className, comp.oldUsed, associations, mqutil.InterfaceEquals, comp.new, 1, method == mqswag.MethodPatch)
 		count := t.db.Update(className, comp.oldUsed, associations, mqutil.InterfaceEquals, comp.new, 1, method == mqswag.MethodPatch)
 		if count != 1 {
@@ -687,8 +677,13 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	if method == mqswag.MethodGet {
 		// For gets, we process based on the result collection's class.
 		for className, resultArray := range collection {
-			single := strings.Contains(t.Path, "{")
-			err := t.CompareGetResult(className, associations, resultArray, single)
+			var err error
+			isGetSingleObject := strings.Contains(t.Path, "{")
+			if isGetSingleObject {
+				err = t.ResponseInDb(className, associations, resultArray)
+			} else {
+				err = t.DbInResponse(className, associations, resultArray)
+			}
 			if err != nil {
 				setExpect()
 				return err
