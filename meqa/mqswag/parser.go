@@ -47,8 +47,6 @@ const (
 	FlagSuccess = 1 << iota
 	FlagFail
 	FlagWeak
-
-	BatchSize = 100
 )
 
 const (
@@ -177,7 +175,7 @@ func ReadUniqueKeys(meqaPath string) {
 
 var Dataset, DoneData DatasetType
 
-func filter(doneData, allData, dataset *map[string][]interface{}) {
+func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int) {
 	doneMap := make(map[string]map[interface{}]bool)
 	for k, v := range *doneData {
 		doneMap[k] = make(map[interface{}]bool)
@@ -199,7 +197,7 @@ func filter(doneData, allData, dataset *map[string][]interface{}) {
 					(*dataset)[k] = append((*dataset)[k], i)
 					(*doneData)[k] = append((*doneData)[k], i)
 					allDone = false
-					if len((*dataset)[k]) >= BatchSize {
+					if len((*dataset)[k]) >= batchSize {
 						break
 					}
 				}
@@ -212,7 +210,7 @@ func filter(doneData, allData, dataset *map[string][]interface{}) {
 	}
 }
 
-func ReadDataset(datasetPath, meqaPath string) {
+func ReadDataset(datasetPath, meqaPath string, batchSize int) {
 	readLocalDataset := func(datasetPath string) DatasetType {
 		var dataset DatasetType
 		data, err := ioutil.ReadFile(datasetPath)
@@ -238,8 +236,8 @@ func ReadDataset(datasetPath, meqaPath string) {
 		AllData = readLocalDataset(datasetPath)
 	}
 	DoneData = readLocalDataset(filepath.Join(meqaPath, DoneDataFile))
-	filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive)
-	filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative)
+	filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive, batchSize)
+	filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative, batchSize)
 }
 
 func WriteDoneData(meqaPath string) {

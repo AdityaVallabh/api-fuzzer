@@ -223,6 +223,7 @@ func main() {
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
 	baseURL := runCommand.String("h", "", "the host's base url")
 	fuzzType := runCommand.String("f", "none", "fuzz type: none, positive, datatype or negative")
+	batchSize := runCommand.Int("b", 10, "batch size")
 	repro := runCommand.Bool("re", false, "reproduce failures")
 	datasetPath := runCommand.String("l", "", "the dataset path")
 	verbose := runCommand.Bool("v", false, "turn on verbose mode")
@@ -295,11 +296,11 @@ func main() {
 		return
 	}
 
-	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType, repro, verbose)
+	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType, batchSize, repro, verbose)
 }
 
 func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
-	testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType *string, repro, verbose *bool) {
+	testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType *string, batchSize *int, repro, verbose *bool) {
 
 	mqutil.Verbose = *verbose
 
@@ -341,7 +342,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		mqswag.ReadUniqueKeys(*meqaPath)
 		mqplan.Current.ReadFails(*meqaPath)
 		if !*repro {
-			mqswag.ReadDataset(*datasetPath, *meqaPath)
+			mqswag.ReadDataset(*datasetPath, *meqaPath, *batchSize)
 		}
 	}
 
