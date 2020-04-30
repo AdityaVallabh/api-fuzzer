@@ -33,13 +33,17 @@ const (
 	ExpectStatus = "status"
 	ExpectBody   = "body"
 
-	MaxRetries            = 10
-	BadRequestStatus      = 400
-	TooManyRequestsStatus = 429
+	MaxRetries = 10
 
-	PositiveFuzz = 1
-	DataTypeFuzz = 2
-	NegativeFuzz = 3
+	StatusSuccess             = "success" // 2XX
+	StatusCodeOk              = 200       // Create success
+	StatusCodeNoResponse      = 204       // Delete success
+	StatusCodeBadRequest      = 400       // Due to incorrect body parameters
+	StatusCodeTooManyRequests = 429       // API rate limiting
+
+	FuzzPositive = 1
+	FuzzDataType = 2
+	FuzzNegative = 3
 )
 
 type Datum interface{}
@@ -496,7 +500,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	}
 
 	testSuccess := success
-	var expectedStatus interface{} = "success"
+	var expectedStatus interface{} = StatusSuccess
 	if t.Expect != nil && t.Expect[ExpectStatus] != nil {
 		expectedStatus = t.Expect[ExpectStatus]
 		if expectedStatus == "fail" {
@@ -594,7 +598,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 			}
 		}
 	}
-	if expectedStatus != "success" {
+	if expectedStatus != StatusSuccess {
 		setExpect()
 		return nil
 	}
@@ -831,14 +835,14 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan 
 		}
 	}
 	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
-	expectStatus := "success"
-	if t.suite.plan.FuzzType >= DataTypeFuzz {
+	expectStatus := StatusSuccess
+	if t.suite.plan.FuzzType >= FuzzDataType {
 		if t.Expect == nil {
 			t.Expect = make(map[string]interface{})
 		}
-		t.Expect[ExpectStatus] = BadRequestStatus
+		t.Expect[ExpectStatus] = StatusCodeBadRequest
 		t.Expect[ExpectBody] = nil
-		expectStatus = fmt.Sprint(BadRequestStatus)
+		expectStatus = fmt.Sprint(StatusCodeBadRequest)
 	}
 	err := t.Do()
 	if err != nil {
@@ -857,7 +861,7 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan 
 		}
 		fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), string(b))
 	}
-	if t.Method == mqswag.MethodPost && t.resp.StatusCode() == 200 {
+	if t.Method == mqswag.MethodPost && t.resp.StatusCode() == StatusCodeOk {
 		deleteResource(t)
 	}
 }
@@ -968,13 +972,13 @@ func (t *Test) Do() error {
 		}
 		t.stopTime = time.Now()
 		fmt.Printf("... call completed: %f seconds\n", t.stopTime.Sub(t.startTime).Seconds())
-		if err == nil && resp.StatusCode() != TooManyRequestsStatus {
+		if err == nil && resp.StatusCode() != StatusCodeTooManyRequests {
 			break
 		}
 		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000)))
 	}
 	tries := MaxRetries
-	for mqswag.MethodDelete == t.Method && resp.StatusCode() != 204 && tries >= 0 {
+	for mqswag.MethodDelete == t.Method && resp.StatusCode() != StatusCodeNoResponse && tries >= 0 {
 		fmt.Println("Delete on ", path, "returned", resp.Status(), ". Retrying...")
 		req.Header["Cookie"] = nil
 		time.Sleep(time.Second)
@@ -1321,14 +1325,14 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
-		if t.suite.plan.FuzzType == PositiveFuzz {
+		if t.suite.plan.FuzzType == FuzzPositive {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
 				if validate(s, c) {
 					t.sampleSpace[name] = append(t.sampleSpace[name], c)
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == DataTypeFuzz && s.Value.Type != gojsonschema.TYPE_STRING {
+		if t.suite.plan.FuzzType == FuzzDataType && s.Value.Type != gojsonschema.TYPE_STRING {
 			s.Value.Format = ""
 			for _, valueType := range dataTypes {
 				if valueType != s.Value.Type {
@@ -1339,7 +1343,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == NegativeFuzz {
+		if t.suite.plan.FuzzType == FuzzNegative {
 			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
 				if !validate(s, c) {
 					t.sampleSpace[name] = append(t.sampleSpace[name], c)
