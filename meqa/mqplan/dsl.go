@@ -683,11 +683,12 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 
 	// Associations are only for the objects that has one for each class and has an old object.
 	associations := make(map[string]map[string]interface{})
-	for className, compArray := range t.comparisons {
-		if len(compArray) == 1 && compArray[0].oldUsed != nil {
-			associations[className] = compArray[0].oldUsed
-		}
-	}
+	// TODO: Understand the need of asociations & comparisons and do things the right way
+	// for className, compArray := range t.comparisons {
+	// 	if len(compArray) == 1 && compArray[0].oldUsed != nil {
+	// 		associations[className] = compArray[0].oldUsed
+	// 	}
+	// }
 
 	if method == mqswag.MethodGet {
 		// For gets, we process based on the result collection's class.
@@ -832,6 +833,11 @@ func deleteResource(t *Test) {
 			dTest.PathParams["id"] = id
 			dTest.op = spec.NewOperation()
 			dTest.comparisons = t.comparisons
+			for _, v := range dTest.comparisons {
+				for _, c := range v {
+					c.oldUsed = c.new
+				}
+			}
 			dTest.Do()
 		}
 	}
