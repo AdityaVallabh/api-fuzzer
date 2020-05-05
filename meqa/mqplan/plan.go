@@ -1,8 +1,10 @@
 package mqplan
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -21,7 +23,7 @@ import (
 
 const (
 	MeqaInit  = "meqa_init"
-	MeqaFails = ".mqfails.yml"
+	MeqaFails = ".mqfails.jsonl"
 )
 
 type TestParams struct {
@@ -123,7 +125,9 @@ type TestPlan struct {
 	// Run result.
 	resultList   []*Test
 	ResultCounts map[string]int
-	Failures     mqswag.FailureCases
+
+	OldFailuresMap map[string]map[string]map[string]map[interface{}]bool // endpoint->method->field->value
+	NewFailures    []*mqswag.Payload
 
 	comment  string
 	FuzzType int
@@ -190,11 +194,33 @@ func (plan *TestPlan) InitFromFile(path string, db *mqswag.DB) error {
 }
 
 func (plan *TestPlan) ReadFails(path string) {
-	data, err := ioutil.ReadFile(filepath.Join(path, MeqaFails))
-	err = yaml.Unmarshal([]byte(data), &plan.Failures)
+	f, err := os.Open(filepath.Join(path, MeqaFails))
+	defer f.Close()
 	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
+		fmt.Println(err.Error())
 	}
+	failures := make(map[string]map[string]map[string]map[interface{}]bool)
+	d := json.NewDecoder(f)
+	for {
+		var v mqswag.Payload
+		if err := d.Decode(&v); err == io.EOF {
+			break
+		} else if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		if failures[v.Endpoint] == nil {
+			failures[v.Endpoint] = make(map[string]map[string]map[interface{}]bool)
+		}
+		if failures[v.Endpoint][v.Method] == nil {
+			failures[v.Endpoint][v.Method] = make(map[string]map[interface{}]bool)
+		}
+		if failures[v.Endpoint][v.Method][v.Field] == nil {
+			failures[v.Endpoint][v.Method][v.Field] = make(map[interface{}]bool)
+		}
+		failures[v.Endpoint][v.Method][v.Field][v.Value] = true
+	}
+	plan.OldFailuresMap = failures
 }
 
 func WriteComment(comment string, f *os.File) {
@@ -252,16 +278,28 @@ func (plan *TestPlan) WriteResultToFile(path string) error {
 }
 
 func (plan *TestPlan) WriteFailures(path string) error {
-	data, err := yaml.Marshal(plan.Failures)
-	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
-		return err
+	flags := os.O_CREATE | os.O_WRONLY
+	var perms os.FileMode
+	if plan.Repro {
+		flags |= os.O_TRUNC
+		perms = 0755
+	} else {
+		flags |= os.O_APPEND
+		perms = 0644
 	}
-	err = ioutil.WriteFile(filepath.Join(path, MeqaFails), data, 0644)
+	f, err := os.OpenFile(filepath.Join(path, MeqaFails), flags, perms)
+	defer f.Close()
 	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
+		fmt.Println(err.Error())
 	}
-	return err
+	d := json.NewEncoder(f)
+	for _, v := range plan.NewFailures {
+		if err := d.Encode(v); err != nil {
+			fmt.Println(err.Error())
+			return err
+		}
+	}
+	return nil
 }
 
 func (plan *TestPlan) LogErrors() {
@@ -304,6 +342,8 @@ func (plan *TestPlan) PrintSummary() {
 	fmt.Printf("%v: %v\n", mqutil.Passed, plan.ResultCounts[mqutil.Passed])
 	fmt.Print(mqutil.RED)
 	fmt.Printf("%v: %v\n", mqutil.Failed, plan.ResultCounts[mqutil.Failed])
+	fmt.Print(mqutil.RED)
+	fmt.Printf("Fuzz Fails: %v\n", len(plan.NewFailures))
 	fmt.Print(mqutil.YELLOW)
 	fmt.Printf("%v: %v\n", mqutil.Skipped, plan.ResultCounts[mqutil.Skipped])
 	fmt.Printf("%v: %v\n", mqutil.SchemaMismatch, plan.ResultCounts[mqutil.SchemaMismatch])
@@ -365,11 +405,10 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		}
 		payloads, err := dup.Run(tc)
 		if payloads != nil && len(payloads) > 0 {
-			name := dup.Path + "_" + dup.Method
-			if plan.Repro {
-				plan.Failures.CaseMap[name] = make([]mqswag.Payload, 0, len(payloads))
+			if plan.NewFailures == nil {
+				plan.NewFailures = make([]*mqswag.Payload, 0, len(payloads))
 			}
-			plan.Failures.CaseMap[name] = append(plan.Failures.CaseMap[name], payloads...)
+			plan.NewFailures = append(plan.NewFailures, payloads...)
 		}
 		dup.err = err
 		plan.resultList = append(plan.resultList, dup)

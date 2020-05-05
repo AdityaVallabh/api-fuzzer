@@ -67,15 +67,13 @@ type DatasetType struct {
 }
 
 type Payload struct {
-	Field    string      `yaml:"field"`
-	Value    interface{} `yaml:"value"`
-	Expected string      `yaml:"expected"`
-	Actual   string      `yaml:"actual"`
-	Message  string      `yaml:"message"`
-}
-
-type FailureCases struct {
-	CaseMap map[string][]Payload `yaml:"failures"`
+	Endpoint string      `json:"endpoint"`
+	Method   string      `json:"method"`
+	Field    string      `json:"field"`
+	Value    interface{} `json:"value"`
+	Expected string      `json:"expected"`
+	Actual   string      `json:"actual"`
+	Message  string      `json:"message"`
 }
 
 type UniqueKeysStruct struct {
