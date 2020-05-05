@@ -374,8 +374,8 @@ func (t *Test) ProcessOneComparison(className string, method string, comp *Compa
 
 	if method == mqswag.MethodDelete {
 		mqutil.Logger.Printf("... deleting entry from client DB. Success\n")
-		t.suite.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, -1)
-		t.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, -1)
+		t.suite.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, 1)
+		t.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, 1)
 	} else if method == mqswag.MethodPost && comp.new != nil {
 		mqutil.Logger.Printf("... adding entry to client DB. Success\n")
 		t.suite.db.Insert(className, comp.new, associations)
@@ -519,7 +519,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	redFail := fmt.Sprintf("%vFail%v", mqutil.RED, mqutil.END)
 	yellowFail := fmt.Sprintf("%vFail%v", mqutil.YELLOW, mqutil.END)
 	if testSuccess {
-		fmt.Printf("... expecting status: %v got status: %d. %v\n", expectedStatus, status, greenSuccess)
+		fmt.Printf("... expecting status: %v got status: %d. %v API=%v\n", expectedStatus, status, greenSuccess, t.Path)
 		if t.Expect != nil && t.Expect[ExpectBody] != nil {
 			testSuccess = mqutil.InterfaceEquals(t.Expect[ExpectBody], resultObj)
 			if testSuccess {
@@ -568,7 +568,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 			}
 			*/
 		} else {
-			fmt.Printf("%v\n", greenSuccess)
+			fmt.Printf("%v API=%v\n", greenSuccess, t.Path)
 		}
 	}
 	if resultObj != nil && len(collection) == 0 && t.tag != nil && len(t.tag.Class) > 0 {
@@ -987,7 +987,7 @@ func (t *Test) Do() error {
 			return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
 		}
 		t.stopTime = time.Now()
-		fmt.Printf("... call completed: %f seconds\n", t.stopTime.Sub(t.startTime).Seconds())
+		fmt.Printf("... call completed: %f seconds. API=%v\n", t.stopTime.Sub(t.startTime).Seconds(), t.Path)
 		if err == nil && resp.StatusCode() != StatusCodeTooManyRequests {
 			break
 		}

@@ -304,11 +304,8 @@ type SchemaDB struct {
 // Insert inserts an object into the schema's object list.
 func (db *SchemaDB) Insert(obj interface{}, associations map[string]map[string]interface{}) error {
 	if !db.NoHistory {
-		found := db.Find(obj, associations, mqutil.InterfaceEquals, 1)
-		if len(found) == 0 {
-			dbentry := &DBEntry{obj.(map[string]interface{}), associations}
-			db.Objects = append(db.Objects, dbentry)
-		}
+		dbentry := &DBEntry{obj.(map[string]interface{}), associations}
+		db.Objects = append(db.Objects, dbentry)
 	}
 	return nil
 }
