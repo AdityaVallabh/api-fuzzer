@@ -558,6 +558,9 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 				// fmt.Printf("... response body: %s\n", string(respBody))
 				fmt.Println(err.Error())
 			}
+			// schemaError is already set. No need to treat it as a hard failure
+			setExpect()
+			return nil
 
 			// We ignore this if the response is success, and the spec we used is the default. This is a strong
 			// indicator that the author didn't spec out all the success cases.
@@ -694,7 +697,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 		// For gets, we process based on the result collection's class.
 		for className, resultArray := range collection {
 			var err error
-			isGetSingleObject := strings.Contains(t.Path, "{")
+			isGetSingleObject := t.Path[len(t.Path)-1] == '}'
 			if isGetSingleObject {
 				err = t.ResponseInDb(className, associations, resultArray)
 			} else {
