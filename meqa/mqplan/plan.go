@@ -24,6 +24,7 @@ import (
 const (
 	MeqaInit  = "meqa_init"
 	MeqaFails = ".mqfails.jsonl"
+	MetaFile  = "meta.yml"
 )
 
 type TestParams struct {
@@ -277,6 +278,19 @@ func (plan *TestPlan) WriteResultToFile(path string) error {
 	return p.DumpToFile(path)
 }
 
+func ReadMetadata(path string) map[string]interface{} {
+	var meta map[string]interface{}
+	data, err := ioutil.ReadFile(filepath.Join(path, MetaFile))
+	if err != nil {
+		fmt.Println("File not found:", err)
+	}
+	err = yaml.Unmarshal([]byte(data), &meta)
+	if err != nil {
+		mqutil.Logger.Printf("error: %v", err)
+	}
+	return meta
+}
+
 func (plan *TestPlan) WriteFailures(path string) error {
 	flags := os.O_CREATE | os.O_WRONLY
 	var perms os.FileMode
@@ -293,7 +307,9 @@ func (plan *TestPlan) WriteFailures(path string) error {
 		fmt.Println(err.Error())
 	}
 	d := json.NewEncoder(f)
+	meta := ReadMetadata(path)
 	for _, v := range plan.NewFailures {
+		v.Meta = meta
 		if err := d.Encode(v); err != nil {
 			fmt.Println(err.Error())
 			return err

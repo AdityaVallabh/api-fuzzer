@@ -67,13 +67,14 @@ type DatasetType struct {
 }
 
 type Payload struct {
-	Endpoint string      `json:"endpoint"`
-	Method   string      `json:"method"`
-	Field    string      `json:"field"`
-	Value    interface{} `json:"value"`
-	Expected string      `json:"expected"`
-	Actual   string      `json:"actual"`
-	Message  string      `json:"message"`
+	Endpoint string                 `json:"endpoint"`
+	Method   string                 `json:"method"`
+	Field    string                 `json:"field"`
+	Value    interface{}            `json:"value"`
+	Expected string                 `json:"expected"`
+	Actual   string                 `json:"actual"`
+	Message  string                 `json:"message"`
+	Meta     map[string]interface{} `json:"meta"`
 }
 
 type UniqueKeysStruct struct {
