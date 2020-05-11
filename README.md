@@ -9,37 +9,83 @@ Meqa generates and runs test suites using your OpenAPI (formerly Swagger) spec i
 ## Highlights
 
 * Understands the object relationships and generates tests that use the right objects and values.
-* Uses the description fields in the OpenAPI spec to understand the spec better and further improve accuracy. 
 * Verifies the REST call results against known objects and values.
 * Verifies the REST call results against OpenAPI schema.
+* Verifies the REST call results against request as well as previous responses.
 * Produces easy to understand and easy to modify intermediate files for customization.
+* Performs positive/negative/datatype fuzzing and logs failures
 
 ## Getting Started
 
-The compiled binaries for Linux, Windows and MacOS are under [releases](https://github.com/meqaio/swagger_meqa/releases). You can also docker pull meqa/go:latest. In the examples below we use the classic [petstore example spec] (http://petstore.swagger.io/).
+First, build the binaries.
 
-There are two steps.
-* Use your OpenAPI spec (e.g., petstore.yml) to generate the test plan files.
-* Pick a test plan file to run.
+* `make binary`: Builds and places `mqgen` and `mqgo` binaries in `bin/` directory
 
+Use your OpenAPI spec (e.g., petstore.yml) to generate the test plan files.
 The commands are:
-* mqgo generate -d /testdata/ -s /testdata/petstore.yml
-* mqgo run -d /testdata/ -s /testdata/petstore_meqa.yml -p /testdata/path.yml
 
-The run step uses petstore_meqa.yml, which is a tagged version of the original petstore.yml.
-* Search for meqa in petstore_meqa.yml to see all the tags.
-* The tags will be more accurate if the OpenAPI spec is more structured (e.g. using #definitions instead of inline Objects) and has more descriptions.
-* See [meqa Format](docs/format.md) for the meaning of tags and adjust them if a tag is wrong.
-* If you add or override the meqa tags, you can feed the tagged yaml file into the "mqgo generate" function again to create new test suites.
+* `bin/mqgen -d testdata -s testdata/petstore_meqa.yml -a path`: Given the test directory path and OpenAPI spec file, `mqgen` generates a test plan `path.yml` in `testdata`.
+* `bin/mqgo run -d testdata -s testdata/petstore_meqa.yml -p testdata/path.yml`: The tests in `path.yml` are executed and results are logged to `results.yml`.
 
 The run step takes a generated test plan file (path.yml in the above example).
+
 * simple.yml just exercises a few simple APIs to expose obvious issues, such as lack of api keys.
 * path.yml exercises CRUD patterns grouped by the REST path.
-* object.yml tries to create an object, then exercises the endpoints that needs the object as an input.
-* The above are just the starting point as proof of concept. We will add more test patterns if there are enough interest.
 * The test yaml files can be edited to add in your own test suites. We allow overriding global, test suite and test parameters, as well as chaining output to input parameters. See [meqa format](docs/format.md) for more details.
+
+## Usage
+
+### mqgen
+
+```
+$ mqgen --help
+Usage of mqgen:
+  -a string
+    	the algorithm - simple, object, path, all (default "all")
+  -d string
+    	the directory where we put the generated files (default "meqa_data")
+  -m string
+    	the paths in this file will be ignored
+  -s string
+    	the swagger.yml file location (default "meqa_data/swagger.yml")
+  -v	turn on verbose mode
+  -w string
+    	the whitelisted APIs file location
+```
+
+### mqgo 
+```
+$ mqgo run --help
+Usage of run:
+  -a string
+    	the api token for bearer HTTP authentication
+  -b int
+    	batch size (default 10)
+  -d string
+    	the directory where meqa config, log and output files reside (default "meqa_data")
+  -f string
+    	fuzz type: none, positive, datatype or negative (default "none")
+  -h string
+    	the host's base url
+  -l string
+    	the dataset path
+  -p string
+    	the test plan file name
+  -r string
+    	the test result file name (default result.yml in meqa_data dir)
+  -re
+    	reproduce failures
+  -s string
+    	the meqa generated OpenAPI (Swagger) spec file path
+  -t string
+    	the test to run (default "all")
+  -u string
+    	the username for basic HTTP authentication
+  -v	turn on verbose mode
+  -w string
+    	the password for basic HTTP authentication
+```
 
 ## Docs
 
-For more details see the [docs](docs) directory.
-
+For details see the [docs](docs) directory.
