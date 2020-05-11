@@ -189,12 +189,12 @@ func (plan *TestPlan) InitFromFile(path string, db *mqswag.DB) error {
 	return nil
 }
 
-func (plan *TestPlan) ReadFails(path string) {
+func (plan *TestPlan) ReadFails(path string) error {
 	data, err := ioutil.ReadFile(filepath.Join(path, MeqaFails))
-	err = yaml.Unmarshal([]byte(data), &plan.Failures)
 	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
+		return err
 	}
+	return yaml.Unmarshal([]byte(data), &plan.Failures)
 }
 
 func WriteComment(comment string, f *os.File) {
