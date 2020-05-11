@@ -183,6 +183,9 @@ func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int)
 		}
 	}
 	allDone := true
+	// Iterating through the dataset maximum twice in the case of completing a cycle.
+	// In the first iteration, we realize we used up all the values in allData
+	// In the second iteration, after resetting doneData, we pick the first "batchSize" values from allData
 	for t := 0; t < 2 && allDone; t++ {
 		for k, v := range *allData {
 			for _, i := range v {
@@ -195,13 +198,15 @@ func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int)
 					}
 					(*dataset)[k] = append((*dataset)[k], i)
 					(*doneData)[k] = append((*doneData)[k], i)
-					allDone = false
+					allDone = false // We have at least one value that hasn't been used yet
 					if len((*dataset)[k]) >= batchSize {
 						break
 					}
 				}
 			}
 		}
+		// If doneData == allData, allDone == true and we didn't pick any values, so reset doneData and repeat
+		// if not, we have some values and the loop breaks
 		if allDone {
 			*(doneData) = make(map[string][]interface{})
 			doneMap = make(map[string]map[interface{}]bool)

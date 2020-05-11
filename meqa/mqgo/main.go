@@ -325,6 +325,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		fuzzMode = mqplan.FuzzNegative
 	default:
 		fmt.Println("Unknown fuzzType:", *fuzzType)
+		fmt.Println("Supported fuzz types: none, positive, datatype or negative")
 		os.Exit(1)
 	}
 
