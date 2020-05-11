@@ -519,7 +519,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	redFail := fmt.Sprintf("%vFail%v", mqutil.RED, mqutil.END)
 	yellowFail := fmt.Sprintf("%vFail%v", mqutil.YELLOW, mqutil.END)
 	if testSuccess {
-		fmt.Printf("... expecting status: %v got status: %d. %v API=%v\n", expectedStatus, status, greenSuccess, t.Path)
+		fmt.Printf("... expecting status: %v got status: %d. %v API=%v Method=%v\n", expectedStatus, status, greenSuccess, t.Path, t.Method)
 		if t.Expect != nil && t.Expect[ExpectBody] != nil {
 			testSuccess = mqutil.InterfaceEquals(t.Expect[ExpectBody], resultObj)
 			if testSuccess {
@@ -571,7 +571,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 			}
 			*/
 		} else {
-			fmt.Printf("%v API=%v\n", greenSuccess, t.Path)
+			fmt.Printf("%v API=%v Method=%v\n", greenSuccess, t.Path, t.Method)
 		}
 	}
 	if resultObj != nil && len(collection) == 0 && t.tag != nil && len(t.tag.Class) > 0 {
@@ -980,7 +980,7 @@ func (t *Test) Do() error {
 			return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
 		}
 		t.stopTime = time.Now()
-		fmt.Printf("... call completed: %f seconds. API=%v\n", t.stopTime.Sub(t.startTime).Seconds(), t.Path)
+		fmt.Printf("... call completed: %f seconds. API=%v Method=%v\n", t.stopTime.Sub(t.startTime).Seconds(), t.Path, t.Method)
 		if err == nil && resp.StatusCode() != StatusCodeTooManyRequests {
 			break
 		}
