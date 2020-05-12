@@ -222,7 +222,10 @@ func main() {
 	password := runCommand.String("w", "", "the password for basic HTTP authentication")
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
 	baseURL := runCommand.String("h", "", "the host's base url")
-	fuzzType := runCommand.Int("f", 0, "fuzz type")
+	fuzzType := runCommand.String("f", "none", "fuzz type: none, positive, datatype or negative")
+	batchSize := runCommand.Int("b", 10, "batch size")
+	repro := runCommand.Bool("re", false, "reproduce failures")
+	datasetPath := runCommand.String("l", "", "the dataset path")
 	verbose := runCommand.Bool("v", false, "turn on verbose mode")
 
 	flag.Usage = func() {
@@ -293,11 +296,11 @@ func main() {
 		return
 	}
 
-	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, fuzzType, verbose)
+	runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath, testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType, batchSize, repro, verbose)
 }
 
 func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
-	testToRun, username, password, apitoken, baseURL *string, fuzzType *int, verbose *bool) {
+	testToRun, username, password, apitoken, baseURL, datasetPath, fuzzType *string, batchSize *int, repro, verbose *bool) {
 
 	mqutil.Verbose = *verbose
 
@@ -311,12 +314,46 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		os.Exit(1)
 	}
 
+	fuzzMode := 0
+	switch strings.ToLower(*fuzzType) {
+	case "none":
+	case "positive":
+		fuzzMode = mqplan.FuzzPositive
+	case "datatype":
+		fuzzMode = mqplan.FuzzDataType
+	case "negative":
+		fuzzMode = mqplan.FuzzNegative
+	default:
+		fmt.Println("Unknown fuzzType:", *fuzzType)
+		fmt.Println("Supported fuzz types: none, positive, datatype or negative")
+		os.Exit(1)
+	}
+
 	// load swagger.yml
 	swagger, err := mqswag.CreateSwaggerFromURL(*swaggerFile, *meqaPath)
 	if err != nil {
 		mqutil.Logger.Printf("Error: %s", err.Error())
 	}
 	mqswag.ObjDB.Init(swagger)
+	if fuzzMode >= mqplan.FuzzPositive {
+		err := mqswag.ReadUniqueKeys(*meqaPath)
+		if err != nil {
+			fmt.Printf("Error reading %s - %s\n", mqswag.UniqueKeysFile, err.Error())
+			os.Exit(1)
+		}
+		err = mqplan.Current.ReadFails(*meqaPath)
+		if err != nil {
+			fmt.Printf("Error reading %s - %s\n", mqplan.MeqaFails, err.Error())
+			os.Exit(1)
+		}
+		if !*repro {
+			mqswag.ReadDataset(*datasetPath, *meqaPath, *batchSize)
+			if err != nil {
+				fmt.Println("Error reading datasets -", err.Error())
+				os.Exit(1)
+			}
+		}
+	}
 
 	// load test plan
 	mqplan.Current.Username = *username
@@ -326,7 +363,8 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 		*baseURL = swagger.Servers[0].URL
 	}
 	mqplan.Current.BaseURL = *baseURL
-	mqplan.Current.FuzzType = *fuzzType
+	mqplan.Current.FuzzType = fuzzMode
+	mqplan.Current.Repro = *repro
 	err = mqplan.Current.InitFromFile(*testPlanFile, &mqswag.ObjDB)
 	if err != nil {
 		mqutil.Logger.Printf("Error loading test plan: %s", err.Error())
@@ -360,4 +398,18 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	mqplan.Current.PrintSummary()
 	os.Remove(*resultPath)
 	mqplan.Current.WriteResultToFile(*resultPath)
+	if fuzzMode >= mqplan.FuzzPositive {
+		err := mqplan.Current.WriteFailures(*meqaPath)
+		if err != nil {
+			fmt.Printf("Error writing to %s - %s\n", mqplan.MeqaFails, err.Error())
+			os.Exit(1)
+		}
+		if !*repro {
+			err := mqswag.WriteDoneData(*meqaPath)
+			if err != nil {
+				fmt.Printf("Error writing to %s - %s\n", mqswag.DoneDataFile, err.Error())
+				os.Exit(1)
+			}
+		}
+	}
 }

@@ -11,8 +11,10 @@ import (
 	"strings"
 
 	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
+	"gopkg.in/yaml.v2"
 
 	spec "github.com/getkin/kin-openapi/openapi3"
+	blns "github.com/minimaxir/big-list-of-naughty-strings/naughtystrings"
 
 	"github.com/xeipuuv/gojsonschema"
 )
@@ -47,11 +49,37 @@ const (
 	FlagWeak
 )
 
+const (
+	DoneDataFile   = ".mqdata.yml"
+	UniqueKeysFile = "uniqueKeys.yml"
+)
+
 type MeqaTag struct {
 	Class     string
 	Property  string
 	Operation string
 	Flags     int64
+}
+
+type DatasetType struct {
+	Positive map[string][]interface{} `yaml:"positive"`
+	Negative map[string][]interface{} `yaml:"negative"`
+}
+
+type Payload struct {
+	Field    string      `yaml:"field"`
+	Value    interface{} `yaml:"value"`
+	Expected string      `yaml:"expected"`
+	Actual   string      `yaml:"actual"`
+	Message  string      `yaml:"message"`
+}
+
+type FailureCases struct {
+	CaseMap map[string][]Payload `yaml:"failures"`
+}
+
+type UniqueKeysStruct struct {
+	Keys []string `yaml:"uniqueKeys"`
 }
 
 func (t *MeqaTag) Equals(o *MeqaTag) bool {
@@ -124,6 +152,110 @@ func GetMeqaTag(desc string) *MeqaTag {
 }
 
 type Swagger spec.Swagger
+
+var UniqueKeys map[string]bool
+
+func ReadUniqueKeys(meqaPath string) error {
+	var uniqueKeysStruct UniqueKeysStruct
+	data, err := ioutil.ReadFile(filepath.Join(meqaPath, UniqueKeysFile))
+	if err != nil {
+		return err
+	}
+	err = yaml.Unmarshal([]byte(data), &uniqueKeysStruct)
+	if err != nil {
+		return err
+	}
+	UniqueKeys = make(map[string]bool)
+	for _, key := range uniqueKeysStruct.Keys {
+		UniqueKeys[key] = true
+	}
+	return nil
+}
+
+var Dataset, DoneData DatasetType
+
+func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int) {
+	doneMap := make(map[string]map[interface{}]bool)
+	for k, v := range *doneData {
+		doneMap[k] = make(map[interface{}]bool)
+		for _, i := range v {
+			doneMap[k][i] = true
+		}
+	}
+	allDone := true
+	// Iterating through the dataset maximum twice in the case of completing a cycle.
+	// In the first iteration, we realize we used up all the values in allData
+	// In the second iteration, after resetting doneData, we pick the first "batchSize" values from allData
+	for t := 0; t < 2 && allDone; t++ {
+		for k, v := range *allData {
+			for _, i := range v {
+				if doneMap[k] == nil || !doneMap[k][i] {
+					if (*dataset)[k] == nil {
+						(*dataset) = make(map[string][]interface{})
+					}
+					if (*doneData)[k] == nil {
+						(*doneData) = make(map[string][]interface{})
+					}
+					(*dataset)[k] = append((*dataset)[k], i)
+					(*doneData)[k] = append((*doneData)[k], i)
+					allDone = false // We have at least one value that hasn't been used yet
+					if len((*dataset)[k]) >= batchSize {
+						break
+					}
+				}
+			}
+		}
+		// If doneData == allData, allDone == true and we didn't pick any values, so reset doneData and repeat
+		// if not, we have some values and the loop breaks
+		if allDone {
+			*(doneData) = make(map[string][]interface{})
+			doneMap = make(map[string]map[interface{}]bool)
+		}
+	}
+}
+
+func ReadDataset(datasetPath, meqaPath string, batchSize int) error {
+	readLocalDataset := func(datasetPath string) (DatasetType, error) {
+		var dataset DatasetType
+		data, err := ioutil.ReadFile(datasetPath)
+		if err != nil {
+			return dataset, err
+		}
+		err = yaml.Unmarshal([]byte(data), &dataset)
+		return dataset, err
+	}
+	var AllData DatasetType
+	var err error
+	if datasetPath == "" {
+		stringsList := blns.Unencoded()
+		interfacesList := make([]interface{}, len(stringsList))
+		for i, s := range stringsList {
+			interfacesList[i] = s
+		}
+		AllData.Positive = make(map[string][]interface{})
+		AllData.Positive["string"] = interfacesList
+	} else {
+		AllData, err = readLocalDataset(datasetPath)
+		if err != nil {
+			return err
+		}
+	}
+	DoneData, err = readLocalDataset(filepath.Join(meqaPath, DoneDataFile))
+	if err != nil {
+		return err
+	}
+	filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive, batchSize)
+	filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative, batchSize)
+	return nil
+}
+
+func WriteDoneData(meqaPath string) error {
+	data, err := yaml.Marshal(DoneData)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(filepath.Join(meqaPath, DoneDataFile), data, 0644)
+}
 
 // Init from a file
 func CreateSwaggerFromURL(path string, meqaPath string) (*Swagger, error) {

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/resty.v1"
@@ -30,6 +32,29 @@ import (
 const (
 	ExpectStatus = "status"
 	ExpectBody   = "body"
+
+	MaxRetries = 10
+
+	StatusSuccess             = "success" // 2XX
+	StatusCodeOk              = 200       // Create success
+	StatusCodeNoResponse      = 204       // Delete success
+	StatusCodeBadRequest      = 400       // Due to incorrect body parameters
+	StatusCodeTooManyRequests = 429       // API rate limiting
+
+	FuzzPositive = 1
+	FuzzDataType = 2
+	FuzzNegative = 3
+)
+
+type Datum interface{}
+
+var (
+	dataTypes = [...]string{
+		gojsonschema.TYPE_BOOLEAN,
+		gojsonschema.TYPE_INTEGER,
+		gojsonschema.TYPE_NUMBER,
+		gojsonschema.TYPE_STRING,
+	}
 )
 
 func GetBaseURL(swagger *mqswag.Swagger) string {
@@ -96,6 +121,7 @@ type Test struct {
 	// Map of Object name (matching definitions) to the Comparison object.
 	// This tracks what objects we need to add to DB at the end of test.
 	comparisons map[string]([]*Comparison)
+	sampleSpace map[string][]interface{}
 
 	tag   *mqswag.MeqaTag // The tag at the top level that describes the test
 	db    *mqswag.DB
@@ -132,7 +158,7 @@ func (t *Test) Init(suite *TestSuite) {
 	}
 }
 
-func (t *Test) Duplicate() *Test {
+func (t *Test) SchemaDuplicate() *Test {
 	test := *t
 	test.Expect = mqutil.MapCopy(test.Expect)
 	test.QueryParams = mqutil.MapCopy(test.QueryParams)
@@ -149,10 +175,29 @@ func (t *Test) Duplicate() *Test {
 	test.op = nil
 	test.resp = nil
 	test.comparisons = make(map[string]([]*Comparison))
+	test.sampleSpace = make(map[string][]interface{})
 	test.err = nil
 	test.db = test.suite.db
 
 	return &test
+}
+
+func (t *Test) Duplicate() *Test {
+	copyTest := t.SchemaDuplicate()
+	copyTest.op = t.op
+	for k, v := range t.comparisons {
+		copyTest.comparisons[k] = make([]*Comparison, len(v))
+		for i, c := range v {
+			newC := &Comparison{
+				old:     mqutil.MapCopy(c.old),
+				oldUsed: mqutil.MapCopy(c.oldUsed),
+				new:     mqutil.MapCopy(c.new),
+				schema:  c.schema,
+			}
+			copyTest.comparisons[k][i] = newC
+		}
+	}
+	return copyTest
 }
 
 func (t *Test) AddBasicComparison(tag *mqswag.MeqaTag, paramSpec *spec.Parameter, data interface{}) {
@@ -240,8 +285,7 @@ func (t *Test) AddObjectComparison(tag *mqswag.MeqaTag, obj map[string]interface
 	}
 }
 
-func (t *Test) CompareGetResult(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
-
+func (t *Test) GetClientDB(className string, associations map[string]map[string]interface{}) []interface{} {
 	var dbArray []interface{}
 	if len(t.comparisons[className]) > 0 {
 		for _, comp := range t.comparisons[className] {
@@ -251,67 +295,76 @@ func (t *Test) CompareGetResult(className string, associations map[string]map[st
 		dbArray = t.db.Find(className, nil, associations, mqutil.InterfaceEquals, -1)
 	}
 	mqutil.Logger.Printf("got %d entries from db", len(dbArray))
+	return dbArray
+}
 
-	// TODO optimize later. Should sort first.
-	if len(t.comparisons[className]) > 0 {
-		for _, comp := range t.comparisons[className] {
-			compFound := false
-			for _, entry := range resultArray {
-				// One of the comparison should match
-				entryMap, _ := entry.(map[string]interface{})
-				if entryMap == nil {
-					// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
-					// match we will catch that when we verify schema.
-					continue
-				}
-				if mqutil.InterfaceEquals(comp.oldUsed, entryMap) {
-					compFound = true
-					break
-				}
-			}
-			if !compFound {
-				b, _ := json.Marshal(comp)
-				c, _ := json.Marshal(resultArray[0].(map[string]interface{}))
-				fmt.Printf("... checking GET result against client DB. Result doesn't match query. Fail\n")
-				t.responseError = fmt.Sprintf("Expected:\n%v\nFound:\n%v\n", string(b), string(c))
-				if len(resultArray) > 1 {
-					t.responseError = t.responseError.(string) + fmt.Sprintf("... and %v other objects.\n", len(resultArray)-1)
-				}
-				return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("result returned doesn't contain query parameters:\n%s\n",
-					string(b)))
-			}
+func (t *Test) ResponseInDb(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
+	fmt.Printf("... checking GET result against client. ")
+	dbArray := t.GetClientDB(className, associations)
+	numMiss := 0
+	var missing string
+	for _, entry := range resultArray {
+		entryMap, _ := entry.(map[string]interface{})
+		if entryMap == nil {
+			// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
+			// match we will catch that when we verify schema.
+			continue
 		}
-	}
-	if t.Strict {
+		found := false
 		for _, dbEntry := range dbArray {
 			dbentryMap, _ := dbEntry.(map[string]interface{})
-			found := false
-			for _, entry := range resultArray {
-				entryMap, _ := entry.(map[string]interface{})
-				if entryMap == nil {
-					// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
-					// match we will catch that when we verify schema.
-					continue
-				}
-				if dbentryMap != nil && mqutil.InterfaceEquals(dbentryMap, entryMap) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				b, _ := json.Marshal(dbEntry)
-				c, _ := json.Marshal(resultArray[0].(map[string]interface{}))
-				fmt.Printf("... checking GET result against client DB. Result not found on client. Fail\n")
-				t.responseError = fmt.Sprintf("Expected:\n%v\nFound:\n%v\n", string(b), string(c))
-				if len(resultArray) > 1 {
-					t.responseError = t.responseError.(string) + fmt.Sprintf("... and %v other objects.\n", len(resultArray)-1)
-				}
-				return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("client object not found in results returned\n%s\n",
-					string(b)))
+			if dbentryMap != nil && mqutil.InterfaceEquals(dbentryMap, entryMap) {
+				found = true
+				break
 			}
 		}
+		if !found {
+			b, _ := json.Marshal(entry)
+			missing = string(b)
+			numMiss++
+		}
 	}
-	fmt.Printf("... checking GET result against client DB. Success\n")
+	if numMiss > 0 {
+		fmt.Printf("Result not found on client. Fail\n")
+		t.responseError = fmt.Sprintf("%v remote objects missing in client\nMissing:%v", numMiss, missing)
+		return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("remote object not found in client\n"))
+	}
+	fmt.Printf("Success\n")
+	return nil
+}
+
+func (t *Test) DbInResponse(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
+	fmt.Printf("... checking client objects against GET result. ")
+	dbArray := t.GetClientDB(className, associations)
+	numMiss := 0
+	var missing string
+	for _, dbEntry := range dbArray {
+		dbentryMap, _ := dbEntry.(map[string]interface{})
+		found := false
+		for _, entry := range resultArray {
+			entryMap, _ := entry.(map[string]interface{})
+			if entryMap == nil {
+				// Server returned array of non-map types. Nothing for us to do. If the schema and server result doesn't
+				// match we will catch that when we verify schema.
+				continue
+			}
+			if dbentryMap != nil && mqutil.InterfaceEquals(dbentryMap, entryMap) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			b, _ := json.Marshal(dbEntry)
+			missing = string(b)
+			numMiss++
+		}
+	}
+	if numMiss > 0 {
+		fmt.Printf("Result not found on remote. Fail\n")
+		t.responseError = fmt.Sprintf("%v local objects missing from a list of %v on remote\nMissing: %s\n", numMiss, len(resultArray), missing)
+		return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("client object not found in results returned\n"))
+	}
+	fmt.Printf("Success\n")
 	return nil
 }
 
@@ -320,15 +373,15 @@ func (t *Test) ProcessOneComparison(className string, method string, comp *Compa
 	associations map[string]map[string]interface{}, collection map[string][]interface{}) error {
 
 	if method == mqswag.MethodDelete {
-		fmt.Printf("... deleting entry from client DB. Success\n")
-		t.suite.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, -1)
-		t.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, -1)
+		mqutil.Logger.Printf("... deleting entry from client DB. Success\n")
+		t.suite.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, 1)
+		t.db.Delete(className, comp.oldUsed, associations, mqutil.InterfaceEquals, 1)
 	} else if method == mqswag.MethodPost && comp.new != nil {
-		fmt.Printf("... adding entry to client DB. Success\n")
+		mqutil.Logger.Printf("... adding entry to client DB. Success\n")
 		t.suite.db.Insert(className, comp.new, associations)
 		return t.db.Insert(className, comp.new, associations)
 	} else if (method == mqswag.MethodPatch || method == mqswag.MethodPut) && comp.new != nil {
-		fmt.Printf("... updating entry in client DB. Success\n")
+		mqutil.Logger.Printf("... updating entry in client DB. Success\n")
 		t.suite.db.Update(className, comp.oldUsed, associations, mqutil.InterfaceEquals, comp.new, 1, method == mqswag.MethodPatch)
 		count := t.db.Update(className, comp.oldUsed, associations, mqutil.InterfaceEquals, comp.new, 1, method == mqswag.MethodPatch)
 		if count != 1 {
@@ -452,7 +505,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	}
 
 	testSuccess := success
-	var expectedStatus interface{} = "success"
+	var expectedStatus interface{} = StatusSuccess
 	if t.Expect != nil && t.Expect[ExpectStatus] != nil {
 		expectedStatus = t.Expect[ExpectStatus]
 		if expectedStatus == "fail" {
@@ -466,7 +519,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 	redFail := fmt.Sprintf("%vFail%v", mqutil.RED, mqutil.END)
 	yellowFail := fmt.Sprintf("%vFail%v", mqutil.YELLOW, mqutil.END)
 	if testSuccess {
-		fmt.Printf("... expecting status: %v got status: %d. %v\n", expectedStatus, status, greenSuccess)
+		fmt.Printf("... expecting status: %v got status: %d. %v API=%v\n", expectedStatus, status, greenSuccess, t.Path)
 		if t.Expect != nil && t.Expect[ExpectBody] != nil {
 			testSuccess = mqutil.InterfaceEquals(t.Expect[ExpectBody], resultObj)
 			if testSuccess {
@@ -515,7 +568,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 			}
 			*/
 		} else {
-			fmt.Printf("%v\n", greenSuccess)
+			fmt.Printf("%v API=%v\n", greenSuccess, t.Path)
 		}
 	}
 	if resultObj != nil && len(collection) == 0 && t.tag != nil && len(t.tag.Class) > 0 {
@@ -550,7 +603,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 			}
 		}
 	}
-	if expectedStatus != "success" {
+	if expectedStatus != StatusSuccess {
 		setExpect()
 		return nil
 	}
@@ -630,16 +683,23 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 
 	// Associations are only for the objects that has one for each class and has an old object.
 	associations := make(map[string]map[string]interface{})
-	for className, compArray := range t.comparisons {
-		if len(compArray) == 1 && compArray[0].oldUsed != nil {
-			associations[className] = compArray[0].oldUsed
-		}
-	}
+	// TODO: Understand the need of asociations & comparisons and do things the right way
+	// for className, compArray := range t.comparisons {
+	// 	if len(compArray) == 1 && compArray[0].oldUsed != nil {
+	// 		associations[className] = compArray[0].oldUsed
+	// 	}
+	// }
 
 	if method == mqswag.MethodGet {
 		// For gets, we process based on the result collection's class.
 		for className, resultArray := range collection {
-			err := t.CompareGetResult(className, associations, resultArray)
+			var err error
+			isGetSingleObject := strings.Contains(t.Path, "{")
+			if isGetSingleObject {
+				err = t.ResponseInDb(className, associations, resultArray)
+			} else {
+				err = t.DbInResponse(className, associations, resultArray)
+			}
 			if err != nil {
 				setExpect()
 				return err
@@ -744,18 +804,158 @@ func (t *Test) CopyParent(parentTest *Test) {
 		}
 	}
 }
-
-// Run runs the test. Returns the test result.
-func (t *Test) Run(tc *TestSuite) error {
-
-	mqutil.Logger.Print("\n--- " + t.Name)
-	fmt.Printf("\nRunning test case: %s\n", t.Name)
-	err := t.ResolveParameters(tc)
-	if err != nil {
-		fmt.Printf("... Fail\n... %s\n", err.Error())
-		return err
+func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
+	bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
+	_, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
+	propSchemas := schema.GetProperties(t.db.Swagger)
+	for uniqueKey := range mqswag.UniqueKeys {
+		if _, ok := propSchemas[uniqueKey]; ok {
+			prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
+			bodyMap[uniqueKey], _ = generateString(prop, uniqueKey+"_")
+		}
 	}
+}
 
+func deleteResource(t *Test) {
+	var result map[string]interface{}
+	json.Unmarshal([]byte(t.resp.String()), &result)
+	if id, ok := result["id"]; ok {
+		t.Method = mqswag.MethodDelete
+		t.BodyParams = nil
+		var dTest *Test
+		for _, test := range t.suite.Tests {
+			if test.Method == mqswag.MethodDelete {
+				dTest = test
+			}
+		}
+		if dTest != nil {
+			dTest = dTest.Duplicate()
+			dTest.PathParams["id"] = id
+			dTest.op = spec.NewOperation()
+			dTest.comparisons = t.comparisons
+			for _, v := range dTest.comparisons {
+				for _, c := range v {
+					c.oldUsed = c.new
+				}
+			}
+			dTest.Do()
+		}
+	}
+}
+
+func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan chan<- mqswag.Payload, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, cList := range t.comparisons {
+		for _, c := range cList {
+			c.new = mqutil.MapReplace(c.new, copyMap)
+		}
+	}
+	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
+	expectStatus := StatusSuccess
+	if t.suite.plan.FuzzType >= FuzzDataType {
+		if t.Expect == nil {
+			t.Expect = make(map[string]interface{})
+		}
+		t.Expect[ExpectStatus] = StatusCodeBadRequest
+		t.Expect[ExpectBody] = nil
+		expectStatus = fmt.Sprint(StatusCodeBadRequest)
+	}
+	err := t.Do()
+	if err != nil {
+		payload := mqswag.Payload{
+			Field:    fkey,
+			Value:    copyMap[fkey],
+			Expected: expectStatus,
+			Actual:   t.resp.Status(),
+			Message:  t.resp.String(),
+		}
+		failChan <- payload
+		b, err := json.Marshal(t.BodyParams)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), string(b))
+	}
+	if t.Method == mqswag.MethodPost && t.resp.StatusCode() == StatusCodeOk {
+		deleteResource(t)
+	}
+}
+
+func processPrevFailures(payloads []mqswag.Payload) map[string]map[interface{}]bool {
+	res := make(map[string]map[interface{}]bool)
+	for _, payload := range payloads {
+		if res[payload.Field] == nil {
+			res[payload.Field] = make(map[interface{}]bool)
+		}
+		res[payload.Field][payload.Value] = true
+	}
+	return res
+}
+
+func (t *Test) getSamples() (map[string][]interface{}, int) {
+	samples, totalTests := make(map[string][]interface{}), 1
+	if t.BodyParams != nil {
+		name := t.Path + "_" + t.Method
+		history := processPrevFailures(t.suite.plan.Failures.CaseMap[name])
+		if t.suite.plan.Repro {
+			for key, choices := range history {
+				samples[key] = make([]interface{}, 0, len(choices))
+				for choice := range choices {
+					samples[key] = append(samples[key], choice)
+					totalTests++
+				}
+			}
+		} else {
+			for key, choices := range t.sampleSpace {
+				samples[key] = make([]interface{}, 0, len(choices))
+				for _, choice := range choices {
+					if !(history[key][choice]) {
+						samples[key] = append(samples[key], choice)
+						totalTests++
+					}
+				}
+			}
+		}
+	}
+	return samples, totalTests
+}
+
+func fuzzTest(baseTest *Test) ([]mqswag.Payload, error) {
+	samples, totalTests := baseTest.getSamples()
+	inParallel := baseTest.Method != mqswag.MethodPut
+	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
+	baseCopy := baseTest.Duplicate()
+	errPositive := baseTest.Do()
+	failChan := make(chan mqswag.Payload, totalTests)
+	var wg sync.WaitGroup
+	if errPositive == nil {
+		for key, choices := range samples {
+			for _, choice := range choices {
+				testCopy := baseCopy.Duplicate()
+				copyMap := mqutil.MapCopy(testCopy.BodyParams.(map[string]interface{}))
+				testCopy.generateUniqueKeys(copyMap)
+				copyMap[key] = choice
+				wg.Add(1)
+				if inParallel {
+					go fuzzRequest(testCopy, copyMap, key, failChan, &wg)
+				} else {
+					fuzzRequest(testCopy, copyMap, key, failChan, &wg)
+				}
+			}
+		}
+	}
+	wg.Wait()
+	close(failChan)
+	payloads := make([]mqswag.Payload, 0, len(failChan))
+	for p := range failChan {
+		payloads = append(payloads, p)
+	}
+	return payloads, errPositive
+}
+
+func (t *Test) Do() error {
+	tc := t.suite
 	req := resty.R()
 	if len(tc.ApiToken) > 0 {
 		req.SetAuthToken(tc.ApiToken)
@@ -765,29 +965,42 @@ func (t *Test) Run(tc *TestSuite) error {
 
 	path := tc.plan.BaseURL + t.SetRequestParameters(req)
 	var resp *resty.Response
-
-	t.startTime = time.Now()
-	switch t.Method {
-	case mqswag.MethodGet:
-		resp, err = req.Get(path)
-	case mqswag.MethodPost:
-		resp, err = req.Post(path)
-	case mqswag.MethodPut:
-		resp, err = req.Put(path)
-	case mqswag.MethodDelete:
-		resp, err = req.Delete(path)
-	case mqswag.MethodPatch:
-		resp, err = req.Patch(path)
-	case mqswag.MethodHead:
-		resp, err = req.Head(path)
-	case mqswag.MethodOptions:
-		resp, err = req.Options(path)
-	default:
-		return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
+	var err error
+	for retries := 0; retries < MaxRetries; retries++ {
+		t.startTime = time.Now()
+		switch t.Method {
+		case mqswag.MethodGet:
+			resp, err = req.Get(path)
+		case mqswag.MethodPost:
+			resp, err = req.Post(path)
+		case mqswag.MethodPut:
+			resp, err = req.Put(path)
+		case mqswag.MethodDelete:
+			resp, err = req.Delete(path)
+		case mqswag.MethodPatch:
+			resp, err = req.Patch(path)
+		case mqswag.MethodHead:
+			resp, err = req.Head(path)
+		case mqswag.MethodOptions:
+			resp, err = req.Options(path)
+		default:
+			return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
+		}
+		t.stopTime = time.Now()
+		fmt.Printf("... call completed: %f seconds. API=%v\n", t.stopTime.Sub(t.startTime).Seconds(), t.Path)
+		if err == nil && resp.StatusCode() != StatusCodeTooManyRequests {
+			break
+		}
+		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000)))
 	}
-	t.stopTime = time.Now()
-	fmt.Printf("... call completed: %f seconds\n", t.stopTime.Sub(t.startTime).Seconds())
-
+	tries := MaxRetries
+	for mqswag.MethodDelete == t.Method && resp.StatusCode() != StatusCodeNoResponse && tries >= 0 {
+		fmt.Println("Delete on ", path, "returned", resp.Status(), ". Retrying...")
+		req.Header["Cookie"] = nil
+		time.Sleep(time.Second)
+		resp, err = req.Delete(path)
+		tries--
+	}
 	if err != nil {
 		t.err = mqutil.NewError(mqutil.ErrHttp, err.Error())
 	} else {
@@ -796,6 +1009,19 @@ func (t *Test) Run(tc *TestSuite) error {
 	}
 	err = t.ProcessResult(resp)
 	return err
+}
+
+// Run runs the test. Returns the test result.
+func (t *Test) Run(tc *TestSuite) ([]mqswag.Payload, error) {
+
+	mqutil.Logger.Print("\n--- " + t.Name)
+	fmt.Printf("\nRunning test case: %s\n", t.Name)
+	err := t.ResolveParameters(tc)
+	if err != nil {
+		fmt.Printf("... Fail\n... %s\n", err.Error())
+		return nil, err
+	}
+	return fuzzTest(t)
 }
 
 func StringParamsResolveWithHistory(str string, h *TestHistory) interface{} {
@@ -1004,6 +1230,24 @@ func removeNulls(inputMap *map[string]interface{}) {
 	*inputMap = filteredMap
 }
 
+func validate(s mqswag.SchemaRef, c interface{}) bool {
+	if s.Value.Type == gojsonschema.TYPE_STRING {
+		if s.Value.MinLength > uint64(len(c.(string))) || (s.Value.MaxLength != nil && uint64(len(c.(string))) > *s.Value.MaxLength) {
+			return false
+		}
+	} else if s.Value.Type == gojsonschema.TYPE_NUMBER || s.Value.Type == gojsonschema.TYPE_INTEGER {
+		if (s.Value.Min != nil && *s.Value.Min > c.(float64)) || (s.Value.Max != nil && c.(float64) > *s.Value.Max) {
+			return false
+		}
+	}
+	if len(s.Value.Pattern) > 0 {
+		if ok, _ := regexp.MatchString(s.Value.Pattern, fmt.Sprint(c)); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
 	switch method {
 	case mqswag.MethodGet:
@@ -1028,7 +1272,7 @@ func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
 func (t *Test) GenerateParameter(paramSpec *spec.Parameter, db *mqswag.DB) (interface{}, error) {
 	tag := mqswag.GetMeqaTag(paramSpec.Description)
 	if paramSpec.Schema != nil {
-		return t.GenerateSchema("", tag, (mqswag.SchemaRef)(*paramSpec.Schema), db, 3)
+		return t.GenerateSchema(paramSpec.Name, tag, (mqswag.SchemaRef)(*paramSpec.Schema), db, 3)
 	}
 	if len(paramSpec.Schema.Value.Enum) != 0 {
 		fmt.Print("enum\n")
@@ -1092,45 +1336,58 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if print {
 			fmt.Print("random\n")
 		}
-		var result interface{}
-		var err error
-		if t.suite.plan.FuzzType >= 2 && s.Value.Type != gojsonschema.TYPE_STRING {
-			types := []string{
-				gojsonschema.TYPE_BOOLEAN,
-				gojsonschema.TYPE_INTEGER,
-				gojsonschema.TYPE_NUMBER,
-				gojsonschema.TYPE_STRING,
-			}
-			randType := s.Value.Type
-			for randType == s.Value.Type {
-				randType = types[rand.Intn(len(types))]
-			}
-			s.Value.Type = randType
-			if t.Expect == nil {
-				t.Expect = make(map[string]interface{})
-			}
-			t.Expect["status"] = "fail"
-			s.Value.Format = ""
-		}
-		switch s.Value.Type {
-		case gojsonschema.TYPE_BOOLEAN:
-			result, err = generateBool(s)
-		case gojsonschema.TYPE_INTEGER:
-			result, err = generateInt(s)
-		case gojsonschema.TYPE_NUMBER:
-			result, err = generateFloat(s)
-		case gojsonschema.TYPE_STRING:
-			result, err = generateString(s, prefix)
-		case "file":
-			return nil, errors.New("can not automatically upload a file, parameter of file type must be manually set\n")
-		}
+		result, err := generateValue(s.Value.Type, s, prefix)
+		name := strings.ReplaceAll(prefix, "_", "")
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
-			return result, err
 		}
+		if t.suite.plan.FuzzType == FuzzPositive {
+			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
+				if validate(s, c) {
+					t.sampleSpace[name] = append(t.sampleSpace[name], c)
+				}
+			}
+		}
+		if t.suite.plan.FuzzType == FuzzDataType && s.Value.Type != gojsonschema.TYPE_STRING {
+			s.Value.Format = ""
+			for _, valueType := range dataTypes {
+				if valueType != s.Value.Type {
+					res, err := generateValue(valueType, s, prefix)
+					if res != nil && err == nil {
+						t.sampleSpace[name] = append(t.sampleSpace[name], res)
+					}
+				}
+			}
+		}
+		if t.suite.plan.FuzzType == FuzzNegative {
+			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
+				if !validate(s, c) {
+					t.sampleSpace[name] = append(t.sampleSpace[name], c)
+				}
+			}
+		}
+		return result, err
 	}
 
 	return nil, mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("unrecognized type: %s", s.Value.Type))
+}
+
+func generateValue(valueType string, s mqswag.SchemaRef, prefix string) (interface{}, error) {
+	var result interface{}
+	var err error
+	switch valueType {
+	case gojsonschema.TYPE_BOOLEAN:
+		result, err = generateBool(s)
+	case gojsonschema.TYPE_INTEGER:
+		result, err = generateInt(s)
+	case gojsonschema.TYPE_NUMBER:
+		result, err = generateFloat(s)
+	case gojsonschema.TYPE_STRING:
+		result, err = generateString(s, prefix)
+	case "file":
+		return nil, errors.New("can not automatically upload a file, parameter of file type must be manually set\n")
+	}
+	return result, err
 }
 
 // RandomTime generate a random time in the range of [t, t + r).
@@ -1165,8 +1422,8 @@ func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
 		pattern = s.Value.Pattern
 		length = len(s.Value.Pattern) * 2
 	} else {
-		pattern = prefix + "\\d+"
-		length = len(prefix) + 5
+		pattern = prefix + "\\d{6,}"
+		length = len(prefix) * 3
 	}
 	str, err := reggen.Generate(pattern, length)
 	if err != nil {
@@ -1221,7 +1478,14 @@ func generateFloat(s mqswag.SchemaRef) (float64, error) {
 				*s.Value.Min, *s.Value.Max))
 		}
 	}
-	return rand.Float64()*(realmax-realmin) + realmin, nil
+	if realmin == 0 && realmax == 0 {
+		realmax = 10.0
+	}
+	ret := rand.Float64()*(realmax-realmin) + realmin
+	for ret == float64(int(ret)) {
+		ret = rand.Float64()*(realmax-realmin) + realmin
+	}
+	return ret, nil
 }
 
 func generateInt(s mqswag.SchemaRef) (int64, error) {
