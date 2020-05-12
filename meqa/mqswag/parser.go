@@ -154,22 +154,21 @@ type Swagger spec.Swagger
 
 var UniqueKeys map[string]bool
 
-func ReadUniqueKeys(meqaPath string) {
+func ReadUniqueKeys(meqaPath string) error {
 	var uniqueKeysStruct UniqueKeysStruct
 	data, err := ioutil.ReadFile(filepath.Join(meqaPath, UniqueKeysFile))
 	if err != nil {
-		fmt.Println("File not found:", err)
-		return
+		return err
 	}
 	err = yaml.Unmarshal([]byte(data), &uniqueKeysStruct)
 	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
-		return
+		return err
 	}
 	UniqueKeys = make(map[string]bool)
 	for _, key := range uniqueKeysStruct.Keys {
 		UniqueKeys[key] = true
 	}
+	return nil
 }
 
 var Dataset, DoneData DatasetType
@@ -183,6 +182,9 @@ func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int)
 		}
 	}
 	allDone := true
+	// Iterating through the dataset maximum twice in the case of completing a cycle.
+	// In the first iteration, we realize we used up all the values in allData
+	// In the second iteration, after resetting doneData, we pick the first "batchSize" values from allData
 	for t := 0; t < 2 && allDone; t++ {
 		for k, v := range *allData {
 			for _, i := range v {
@@ -195,13 +197,15 @@ func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int)
 					}
 					(*dataset)[k] = append((*dataset)[k], i)
 					(*doneData)[k] = append((*doneData)[k], i)
-					allDone = false
+					allDone = false // We have at least one value that hasn't been used yet
 					if len((*dataset)[k]) >= batchSize {
 						break
 					}
 				}
 			}
 		}
+		// If doneData == allData, allDone == true and we didn't pick any values, so reset doneData and repeat
+		// if not, we have some values and the loop breaks
 		if allDone {
 			*(doneData) = make(map[string][]interface{})
 			doneMap = make(map[string]map[interface{}]bool)
@@ -209,20 +213,18 @@ func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int)
 	}
 }
 
-func ReadDataset(datasetPath, meqaPath string, batchSize int) {
-	readLocalDataset := func(datasetPath string) DatasetType {
+func ReadDataset(datasetPath, meqaPath string, batchSize int) error {
+	readLocalDataset := func(datasetPath string) (DatasetType, error) {
 		var dataset DatasetType
 		data, err := ioutil.ReadFile(datasetPath)
 		if err != nil {
-			fmt.Println("File not found:", err)
+			return dataset, err
 		}
 		err = yaml.Unmarshal([]byte(data), &dataset)
-		if err != nil {
-			mqutil.Logger.Printf("error: %v", err)
-		}
-		return dataset
+		return dataset, err
 	}
 	var AllData DatasetType
+	var err error
 	if datasetPath == "" {
 		stringsList := blns.Unencoded()
 		interfacesList := make([]interface{}, len(stringsList))
@@ -232,22 +234,26 @@ func ReadDataset(datasetPath, meqaPath string, batchSize int) {
 		AllData.Positive = make(map[string][]interface{})
 		AllData.Positive["string"] = interfacesList
 	} else {
-		AllData = readLocalDataset(datasetPath)
+		AllData, err = readLocalDataset(datasetPath)
+		if err != nil {
+			return err
+		}
 	}
-	DoneData = readLocalDataset(filepath.Join(meqaPath, DoneDataFile))
+	DoneData, err = readLocalDataset(filepath.Join(meqaPath, DoneDataFile))
+	if err != nil {
+		return err
+	}
 	filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive, batchSize)
 	filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative, batchSize)
+	return nil
 }
 
-func WriteDoneData(meqaPath string) {
+func WriteDoneData(meqaPath string) error {
 	data, err := yaml.Marshal(DoneData)
 	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
+		return err
 	}
-	err = ioutil.WriteFile(filepath.Join(meqaPath, DoneDataFile), data, 0644)
-	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
-	}
+	return ioutil.WriteFile(filepath.Join(meqaPath, DoneDataFile), data, 0644)
 }
 
 // Init from a file

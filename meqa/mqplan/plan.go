@@ -194,11 +194,11 @@ func (plan *TestPlan) InitFromFile(path string, db *mqswag.DB) error {
 	return nil
 }
 
-func (plan *TestPlan) ReadFails(path string) {
+func (plan *TestPlan) ReadFails(path string) error {
 	f, err := os.Open(filepath.Join(path, MeqaFails))
 	defer f.Close()
 	if err != nil {
-		fmt.Println(err.Error())
+		return err
 	}
 	failures := make(map[string]map[string]map[string]map[interface{}]bool)
 	d := json.NewDecoder(f)
@@ -207,8 +207,7 @@ func (plan *TestPlan) ReadFails(path string) {
 		if err := d.Decode(&v); err == io.EOF {
 			break
 		} else if err != nil {
-			fmt.Println(err.Error())
-			return
+			return err
 		}
 		if failures[v.Endpoint] == nil {
 			failures[v.Endpoint] = make(map[string]map[string]map[interface{}]bool)
@@ -222,6 +221,7 @@ func (plan *TestPlan) ReadFails(path string) {
 		failures[v.Endpoint][v.Method][v.Field][v.Value] = true
 	}
 	plan.OldFailuresMap = failures
+	return nil
 }
 
 func WriteComment(comment string, f *os.File) {

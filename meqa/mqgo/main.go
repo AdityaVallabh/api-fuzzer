@@ -317,18 +317,15 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	fuzzMode := 0
 	switch strings.ToLower(*fuzzType) {
 	case "none":
-		fuzzMode = 0
 	case "positive":
-		fuzzMode = 1
+		fuzzMode = mqplan.FuzzPositive
 	case "datatype":
-		fuzzMode = 2
+		fuzzMode = mqplan.FuzzDataType
 	case "negative":
-		fuzzMode = 3
+		fuzzMode = mqplan.FuzzNegative
 	default:
-		fuzzMode = -1
-	}
-	if fuzzMode == -1 {
-		fmt.Printf("Unknown fuzzType %s", *fuzzType)
+		fmt.Println("Unknown fuzzType:", *fuzzType)
+		fmt.Println("Supported fuzz types: none, positive, datatype or negative")
 		os.Exit(1)
 	}
 
@@ -339,10 +336,22 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	}
 	mqswag.ObjDB.Init(swagger)
 	if fuzzMode >= mqplan.FuzzPositive {
-		mqswag.ReadUniqueKeys(*meqaPath)
-		mqplan.Current.ReadFails(*meqaPath)
+		err := mqswag.ReadUniqueKeys(*meqaPath)
+		if err != nil {
+			fmt.Printf("Error reading %s - %s\n", mqswag.UniqueKeysFile, err.Error())
+			os.Exit(1)
+		}
+		err = mqplan.Current.ReadFails(*meqaPath)
+		if err != nil {
+			fmt.Printf("Error reading %s - %s\n", mqplan.MeqaFails, err.Error())
+			os.Exit(1)
+		}
 		if !*repro {
 			mqswag.ReadDataset(*datasetPath, *meqaPath, *batchSize)
+			if err != nil {
+				fmt.Println("Error reading datasets -", err.Error())
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -390,9 +399,17 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	os.Remove(*resultPath)
 	mqplan.Current.WriteResultToFile(*resultPath)
 	if fuzzMode >= mqplan.FuzzPositive {
-		mqplan.Current.WriteFailures(*meqaPath)
+		err := mqplan.Current.WriteFailures(*meqaPath)
+		if err != nil {
+			fmt.Printf("Error writing to %s - %s\n", mqplan.MeqaFails, err.Error())
+			os.Exit(1)
+		}
 		if !*repro {
-			mqswag.WriteDoneData(*meqaPath)
+			err := mqswag.WriteDoneData(*meqaPath)
+			if err != nil {
+				fmt.Printf("Error writing to %s - %s\n", mqswag.DoneDataFile, err.Error())
+				os.Exit(1)
+			}
 		}
 	}
 }
