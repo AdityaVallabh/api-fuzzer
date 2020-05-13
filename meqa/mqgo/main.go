@@ -401,7 +401,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 	if fuzzMode >= mqplan.FuzzPositive {
 		err := mqplan.Current.WriteFailures(*meqaPath)
 		if err != nil {
-			fmt.Printf("Error writing to fuzz failures to file - %s\n", err.Error())
+			fmt.Printf("Error writing fuzz failures to file - %s\n", err.Error())
 			os.Exit(1)
 		}
 		if !*repro {
