@@ -24,6 +24,7 @@ import (
 const (
 	MeqaInit  = "meqa_init"
 	MeqaFails = "mqfails.jsonl"
+	NewFails  = "newFails.jsonl"
 	MetaFile  = "meta.yml"
 )
 
@@ -301,17 +302,25 @@ func (plan *TestPlan) WriteFailures(path string) error {
 		flags |= os.O_APPEND
 		perms = 0644
 	}
-	f, err := os.OpenFile(filepath.Join(path, MeqaFails), flags, perms)
-	defer f.Close()
+	mqFails, err := os.OpenFile(filepath.Join(path, MeqaFails), flags, perms)
+	defer mqFails.Close()
 	if err != nil {
-		fmt.Println(err.Error())
+		return err
 	}
-	d := json.NewEncoder(f)
+	newFails, err := os.OpenFile(filepath.Join(path, NewFails), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	defer newFails.Close()
+	if err != nil {
+		return err
+	}
+	d1 := json.NewEncoder(mqFails)
+	d2 := json.NewEncoder(newFails)
 	meta := ReadMetadata(path)
 	for _, v := range plan.NewFailures {
 		v.Meta = meta
-		if err := d.Encode(v); err != nil {
-			fmt.Println(err.Error())
+		if err := d1.Encode(v); err != nil {
+			return err
+		}
+		if err := d2.Encode(v); err != nil {
 			return err
 		}
 	}
