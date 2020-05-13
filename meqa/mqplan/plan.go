@@ -23,7 +23,7 @@ import (
 
 const (
 	MeqaInit  = "meqa_init"
-	MeqaFails = ".mqfails.jsonl"
+	MeqaFails = "mqfails.jsonl"
 	MetaFile  = "meta.yml"
 )
 

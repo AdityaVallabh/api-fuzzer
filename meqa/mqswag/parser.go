@@ -50,7 +50,7 @@ const (
 )
 
 const (
-	DoneDataFile   = ".mqdata.yml"
+	DoneDataFile   = "mqdata.yml"
 	UniqueKeysFile = "uniqueKeys.yml"
 )
 
