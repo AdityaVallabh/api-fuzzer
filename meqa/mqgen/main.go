@@ -47,31 +47,20 @@ func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool
 		fmt.Printf("Can't load swagger file at the following location %s", swaggerJsonPath)
 		os.Exit(1)
 	}
-	whitelistPath := *whitelistFile
 	var whitelist map[string]bool
-	if len(whitelistPath) > 0 {
-		if fi, err := os.Stat(whitelistPath); os.IsNotExist(err) || fi.Mode().IsDir() {
-			fmt.Printf("Can't load whitelist file at the following location %s", whitelistPath)
-			os.Exit(1)
-		}
-		wl, err := mqswag.GetListFromFile(whitelistPath)
-		whitelist = wl
+	var err error
+	if len(*whitelistFile) > 0 {
+		whitelist, err = mqswag.GetListFromFile(*whitelistFile)
 		if err != nil {
-			mqutil.Logger.Printf("Error: %s", err.Error())
+			fmt.Println("Can't read whitelist file at the following location:", *whitelistFile)
 			os.Exit(1)
 		}
 	}
-	pathToFile := *ignoredPathsFile
 	var ignoredPaths map[string]bool
-	if len(pathToFile) > 0 {
-		if fi, err := os.Stat(pathToFile); os.IsNotExist(err) || fi.Mode().IsDir() {
-			fmt.Printf("Can't load ignoredPaths file at the following location %s", pathToFile)
-			os.Exit(1)
-		}
-		paths, err := mqswag.GetListFromFile(pathToFile)
-		ignoredPaths = paths
+	if len(*ignoredPathsFile) > 0 {
+		ignoredPaths, err = mqswag.GetListFromFile(*ignoredPathsFile)
 		if err != nil {
-			mqutil.Logger.Printf("Error: %s", err.Error())
+			fmt.Println("Can't read ignoredPaths file at the following location:", *ignoredPathsFile)
 			os.Exit(1)
 		}
 	}

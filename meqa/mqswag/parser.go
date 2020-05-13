@@ -309,7 +309,6 @@ func CreateSwaggerFromURL(path string, meqaPath string) (*Swagger, error) {
 func GetListFromFile(path string) (map[string]bool, error) {
 	bytes, err := ioutil.ReadFile(path)
 	if err != nil {
-		mqutil.Logger.Printf("can't read file %s", path)
 		return nil, err
 	}
 	lines := strings.Split(string(bytes), "\n")
