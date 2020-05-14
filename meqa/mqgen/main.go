@@ -32,14 +32,14 @@ func main() {
 	swaggerFile := flag.String("s", swaggerJSONFile, "the swagger.yml file location")
 	algorithm := flag.String("a", "all", "the algorithm - simple, object, path, all")
 	verbose := flag.Bool("v", false, "turn on verbose mode")
-	whitelistFile := flag.String("w", "", "the whitelisted APIs file location")
+	whitelistedAPIsFile := flag.String("w", "", "the whitelisted APIs file location")
 	ignoredPathsFile := flag.String("m", "", "the paths in this file will be ignored")
 
 	flag.Parse()
-	run(meqaPath, swaggerFile, algorithm, verbose, whitelistFile, ignoredPathsFile)
+	run(meqaPath, swaggerFile, algorithm, verbose, whitelistedAPIsFile, ignoredPathsFile)
 }
 
-func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool, whitelistFile *string, ignoredPathsFile *string) {
+func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool, whitelistedAPIsFile *string, ignoredPathsFile *string) {
 	mqutil.Verbose = *verbose
 
 	swaggerJsonPath := *swaggerFile
@@ -47,24 +47,8 @@ func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool
 		fmt.Printf("Can't load swagger file at the following location %s", swaggerJsonPath)
 		os.Exit(1)
 	}
-	var whitelist map[string]bool
-	var err error
-	if len(*whitelistFile) > 0 {
-		whitelist, err = mqswag.GetListFromFile(*whitelistFile)
-		if err != nil {
-			fmt.Println("Can't read whitelist file at the following location:", *whitelistFile)
-			os.Exit(1)
-		}
-	}
-	var ignoredPaths map[string]bool
-	if len(*ignoredPathsFile) > 0 {
-		ignoredPaths, err = mqswag.GetListFromFile(*ignoredPathsFile)
-		if err != nil {
-			fmt.Println("Can't read ignoredPaths file at the following location:", *ignoredPathsFile)
-			os.Exit(1)
-		}
-	}
-
+	whitelistedAPIs := GetList(*whitelistedAPIsFile)
+	ignoredPaths := GetList(*ignoredPathsFile)
 	testPlanPath := *meqaPath
 	if fi, err := os.Stat(testPlanPath); os.IsNotExist(err) {
 		err = os.Mkdir(testPlanPath, 0755)
@@ -104,7 +88,7 @@ func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool
 		var testPlan *mqplan.TestPlan
 		switch algo {
 		case algoPath:
-			testPlan, err = mqplan.GeneratePathTestPlan(swagger, dag, whitelist, ignoredPaths)
+			testPlan, err = mqplan.GeneratePathTestPlan(swagger, dag, whitelistedAPIs, ignoredPaths)
 		case algoObject:
 			testPlan, err = mqplan.GenerateTestPlan(swagger, dag)
 		default:
@@ -122,4 +106,16 @@ func run(meqaPath *string, swaggerFile *string, algorithm *string, verbose *bool
 		}
 		fmt.Println("Test plans generated at:", testPlanFile)
 	}
+}
+
+func GetList(path string) map[string]bool {
+	if len(path) > 0 {
+		list, err := mqswag.GetListFromFile(path)
+		if err != nil {
+			fmt.Println("Can't read file at the following location:", path)
+			os.Exit(1)
+		}
+		return list
+	}
+	return nil
 }
