@@ -32,8 +32,8 @@ func main() {
 	swaggerFile := flag.String("s", swaggerJSONFile, "the swagger.yml file location")
 	algorithm := flag.String("a", "all", "the algorithm - simple, object, path, all")
 	verbose := flag.Bool("v", false, "turn on verbose mode")
-	whitelistedAPIsFile := flag.String("w", "", "the whitelisted APIs file location")
-	ignoredPathsFile := flag.String("m", "", "the paths in this file will be ignored")
+	whitelistedAPIsFile := flag.String("w", "", "name of the file (that lists out all whitelisted APIs) along with its relative path. Example testdata/whitelist.cfg")
+	ignoredPathsFile := flag.String("i", "", "name of the file (that lists out all ignored paths in APIs) along with its relative path. Example testdata/ignorePaths.cfg")
 
 	flag.Parse()
 	run(meqaPath, swaggerFile, algorithm, verbose, whitelistedAPIsFile, ignoredPathsFile)
