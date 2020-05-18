@@ -1427,9 +1427,6 @@ func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
 		u, err := uuid.NewV4()
 		return u.String(), err
 	}
-	if s.Value.Format == "email" {
-		s.Value.Pattern = "^[a-z0-9]+@[a-z_]+?\\.[a-z]{2,3}$"
-	}
 
 	// If no pattern is specified, we use the field name + some numbers as pattern
 	var pattern string
