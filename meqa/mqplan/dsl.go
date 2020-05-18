@@ -1391,11 +1391,15 @@ func generateValue(valueType string, s mqswag.SchemaRef, prefix string) (interfa
 }
 
 func generatePattern(format string) string {
+	// https://gist.github.com/marcelotmelo/b67f58a08bee6c2468f8/
+	dateRegex := "([0-9]+)-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])"
+	timeRegex := "([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)(\\.[0-9]+)?"
+	timezoneRegex := "([\\+|\\-]([01][0-9]|2[0-3]):[0-5][0-9])"
 	switch format {
 	case "date-time":
-		return "^([0-9]+)-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])[Tt]([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)(\\.[0-9]+)?(([Zz])|([\\+|\\-]([01][0-9]|2[0-3]):[0-5][0-9]))$" // https://gist.github.com/marcelotmelo/b67f58a08bee6c2468f8/
+		return fmt.Sprintf("^%s[Tt]%s(([Zz])|%s)$", dateRegex, timeRegex, timezoneRegex)
 	case "date":
-		return "^([0-9]+)-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])$"
+		return fmt.Sprintf("^%s$", dateRegex)
 	case "uuid":
 		return "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	case "email":
