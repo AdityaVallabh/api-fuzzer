@@ -1390,6 +1390,21 @@ func generateValue(valueType string, s mqswag.SchemaRef, prefix string) (interfa
 	return result, err
 }
 
+func generatePattern(format string) string {
+	switch format {
+	case "date-time":
+		return "^([0-9]+)-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])[Tt]([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)(\\.[0-9]+)?(([Zz])|([\\+|\\-]([01][0-9]|2[0-3]):[0-5][0-9]))$" // https://gist.github.com/marcelotmelo/b67f58a08bee6c2468f8/
+	case "date":
+		return "^([0-9]+)-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])$"
+	case "uuid":
+		return "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+	case "email":
+		return "^[a-z0-9]+@[a-z_]+?\\.[a-z]{2,3}$"
+	default:
+		return ""
+	}
+}
+
 // RandomTime generate a random time in the range of [t, t + r).
 func RandomTime(t time.Time, r time.Duration) time.Time {
 	return t.Add(time.Duration(float64(r) * rand.Float64()))
@@ -1399,6 +1414,7 @@ func RandomTime(t time.Time, r time.Duration) time.Time {
 // date ranges. Prefix is a prefix to use when generating strings. It's only used when there is
 // no specified pattern in the swagger.json
 func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
+	s.Value.Pattern = generatePattern(s.Value.Format)
 	if s.Value.Format == "date-time" {
 		t := RandomTime(time.Now(), time.Hour*24*30)
 		return t.Format(time.RFC3339), nil
