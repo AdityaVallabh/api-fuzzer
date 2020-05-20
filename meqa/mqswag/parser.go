@@ -232,11 +232,11 @@ func ReadDataset(datasetPath, meqaPath, fuzzMode string, batchSize int) error {
 		for i, s := range stringsList {
 			interfacesList[i] = s
 		}
-		if fuzzMode == mqutil.FuzzPositive {
+		if fuzzMode == mqutil.FuzzPositive || fuzzMode == mqutil.FuzzAll {
 			AllData.Positive = make(map[string][]interface{})
 			AllData.Positive["string"] = interfacesList
 		}
-		if fuzzMode == mqutil.FuzzNegative {
+		if fuzzMode == mqutil.FuzzNegative || fuzzMode == mqutil.FuzzAll {
 			AllData.Negative = make(map[string][]interface{})
 			AllData.Negative["string"] = interfacesList
 		}
@@ -250,10 +250,10 @@ func ReadDataset(datasetPath, meqaPath, fuzzMode string, batchSize int) error {
 	if err != nil {
 		return err
 	}
-	if fuzzMode == mqutil.FuzzPositive {
+	if fuzzMode == mqutil.FuzzPositive || fuzzMode == mqutil.FuzzAll {
 		filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive, batchSize)
 	}
-	if fuzzMode == mqutil.FuzzNegative {
+	if fuzzMode == mqutil.FuzzNegative || fuzzMode == mqutil.FuzzAll {
 		filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative, batchSize)
 	}
 	return nil

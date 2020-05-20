@@ -220,7 +220,7 @@ func (plan *TestPlan) ReadFails(path string) error {
 		if failures[v.Endpoint][v.Method][v.Field] == nil {
 			failures[v.Endpoint][v.Method][v.Field] = make(map[mqutil.FuzzValue]bool)
 		}
-		if plan.FuzzType == v.FuzzType {
+		if plan.FuzzType == v.FuzzType || plan.FuzzType == mqutil.FuzzAll {
 			fuzzValue := mqutil.FuzzValue{Value: v.Value, FuzzType: v.FuzzType}
 			failures[v.Endpoint][v.Method][v.Field][fuzzValue] = true
 		} else {

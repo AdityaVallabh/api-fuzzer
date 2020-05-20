@@ -1332,7 +1332,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
-		if t.suite.plan.FuzzType == mqutil.FuzzPositive {
+		if t.suite.plan.FuzzType == mqutil.FuzzPositive || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
 				if validate(s, c) {
 					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzPositive}
@@ -1340,7 +1340,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == mqutil.FuzzDataType && s.Value.Type != gojsonschema.TYPE_STRING {
+		if (t.suite.plan.FuzzType == mqutil.FuzzDataType || t.suite.plan.FuzzType == mqutil.FuzzAll) && s.Value.Type != gojsonschema.TYPE_STRING {
 			s.Value.Format = ""
 			for _, valueType := range dataTypes {
 				if valueType != s.Value.Type {
@@ -1352,7 +1352,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == mqutil.FuzzNegative {
+		if t.suite.plan.FuzzType == mqutil.FuzzNegative || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
 				if !validate(s, c) {
 					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzNegative}

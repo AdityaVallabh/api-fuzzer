@@ -35,6 +35,10 @@ const (
 	configAcceptedTerm = "terms_accepted"
 )
 
+const (
+	SupportedFuzzTypes = "Supported fuzz types: positive, datatype , negative or all"
+)
+
 func writeConfigFile(configPath string, configMap map[string]interface{}) error {
 	configBytes, err := yaml.Marshal(configMap)
 	if err != nil {
@@ -222,7 +226,7 @@ func main() {
 	password := runCommand.String("w", "", "the password for basic HTTP authentication")
 	apitoken := runCommand.String("a", "", "the api token for bearer HTTP authentication")
 	baseURL := runCommand.String("h", "", "the host's base url")
-	fuzzType := runCommand.String("f", "", "fuzz type: positive, datatype or negative")
+	fuzzType := runCommand.String("f", "", SupportedFuzzTypes)
 	batchSize := runCommand.Int("b", 10, "batch size")
 	repro := runCommand.Bool("re", false, "reproduce failures")
 	datasetPath := runCommand.String("l", "", "the dataset path")
@@ -316,11 +320,11 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 
 	var fuzzMode string
 	switch strings.ToLower(*fuzzType) {
-	case mqutil.FuzzPositive, mqutil.FuzzNegative, mqutil.FuzzDataType:
+	case mqutil.FuzzPositive, mqutil.FuzzNegative, mqutil.FuzzDataType, mqutil.FuzzAll:
 		fuzzMode = *fuzzType
 	default:
 		fmt.Println("Unknown fuzzType:", *fuzzType)
-		fmt.Println("Supported fuzz types: positive, datatype or negative")
+		fmt.Println(SupportedFuzzTypes)
 		os.Exit(1)
 	}
 

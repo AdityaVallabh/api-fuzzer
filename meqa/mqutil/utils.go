@@ -4,6 +4,7 @@ const (
 	FuzzPositive = "positive"
 	FuzzDataType = "datatype"
 	FuzzNegative = "negative"
+	FuzzAll      = "all"
 )
 
 type FuzzValue struct {
