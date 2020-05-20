@@ -128,11 +128,12 @@ type TestPlan struct {
 	resultList   []*Test
 	ResultCounts map[string]int
 
-	OldFailuresMap map[string]map[string]map[string]map[interface{}]bool // endpoint->method->field->value
+	OldFailuresMap map[string]map[string]map[string]map[mqutil.FuzzValue]bool // endpoint->method->field->(value,fuzzType)->bool
 	NewFailures    []*mqswag.Payload
+	OtherFailures  []*mqswag.Payload // Failures where fuzzType != currFuzzType
 
 	comment  string
-	FuzzType int
+	FuzzType string
 	Repro    bool
 }
 
@@ -201,7 +202,7 @@ func (plan *TestPlan) ReadFails(path string) error {
 	if err != nil {
 		return err
 	}
-	failures := make(map[string]map[string]map[string]map[interface{}]bool)
+	failures := make(map[string]map[string]map[string]map[mqutil.FuzzValue]bool)
 	d := json.NewDecoder(f)
 	for {
 		var v mqswag.Payload
@@ -211,15 +212,20 @@ func (plan *TestPlan) ReadFails(path string) error {
 			return err
 		}
 		if failures[v.Endpoint] == nil {
-			failures[v.Endpoint] = make(map[string]map[string]map[interface{}]bool)
+			failures[v.Endpoint] = make(map[string]map[string]map[mqutil.FuzzValue]bool)
 		}
 		if failures[v.Endpoint][v.Method] == nil {
-			failures[v.Endpoint][v.Method] = make(map[string]map[interface{}]bool)
+			failures[v.Endpoint][v.Method] = make(map[string]map[mqutil.FuzzValue]bool)
 		}
 		if failures[v.Endpoint][v.Method][v.Field] == nil {
-			failures[v.Endpoint][v.Method][v.Field] = make(map[interface{}]bool)
+			failures[v.Endpoint][v.Method][v.Field] = make(map[mqutil.FuzzValue]bool)
 		}
-		failures[v.Endpoint][v.Method][v.Field][v.Value] = true
+		if plan.FuzzType == v.FuzzType {
+			fuzzValue := mqutil.FuzzValue{Value: v.Value, FuzzType: v.FuzzType}
+			failures[v.Endpoint][v.Method][v.Field][fuzzValue] = true
+		} else {
+			plan.OtherFailures = append(plan.OtherFailures, &v)
+		}
 	}
 	plan.OldFailuresMap = failures
 	return nil
@@ -315,6 +321,13 @@ func (plan *TestPlan) WriteFailures(path string) error {
 	d1 := json.NewEncoder(mqFails)
 	d2 := json.NewEncoder(newFails)
 	meta := ReadMetadata(path)
+	if plan.Repro {
+		for _, v := range plan.OtherFailures {
+			if err := d1.Encode(v); err != nil {
+				return err
+			}
+		}
+	}
 	for _, v := range plan.NewFailures {
 		v.Meta = meta
 		if err := d1.Encode(v); err != nil {
@@ -367,13 +380,15 @@ func (plan *TestPlan) PrintSummary() {
 	fmt.Printf("%v: %v\n", mqutil.Passed, plan.ResultCounts[mqutil.Passed])
 	fmt.Print(mqutil.RED)
 	fmt.Printf("%v: %v\n", mqutil.Failed, plan.ResultCounts[mqutil.Failed])
-	fmt.Print(mqutil.RED)
-	fmt.Printf("Fuzz Fails: %v\n", len(plan.NewFailures))
 	fmt.Print(mqutil.YELLOW)
 	fmt.Printf("%v: %v\n", mqutil.Skipped, plan.ResultCounts[mqutil.Skipped])
 	fmt.Printf("%v: %v\n", mqutil.SchemaMismatch, plan.ResultCounts[mqutil.SchemaMismatch])
 	fmt.Print(mqutil.AQUA)
 	fmt.Printf("%v: %v\n", mqutil.Total, plan.ResultCounts[mqutil.Total])
+	fmt.Print(mqutil.RED)
+	fmt.Printf("%v: %v\n", mqutil.FuzzFails, len(plan.NewFailures))
+	fmt.Print(mqutil.AQUA)
+	fmt.Printf("%v: %v\n", mqutil.FuzzTotal, plan.ResultCounts[mqutil.FuzzTotal])
 	fmt.Print(mqutil.END)
 }
 

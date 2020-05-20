@@ -71,6 +71,7 @@ type Payload struct {
 	Method   string                 `json:"method"`
 	Field    string                 `json:"field"`
 	Value    interface{}            `json:"value"`
+	FuzzType string                 `json:"fuzzType"`
 	Expected string                 `json:"expected"`
 	Actual   string                 `json:"actual"`
 	Message  string                 `json:"message"`
@@ -213,7 +214,7 @@ func filter(doneData, allData, dataset *map[string][]interface{}, batchSize int)
 	}
 }
 
-func ReadDataset(datasetPath, meqaPath string, batchSize int) error {
+func ReadDataset(datasetPath, meqaPath, fuzzMode string, batchSize int) error {
 	readLocalDataset := func(datasetPath string) (DatasetType, error) {
 		var dataset DatasetType
 		data, err := ioutil.ReadFile(datasetPath)
@@ -231,8 +232,14 @@ func ReadDataset(datasetPath, meqaPath string, batchSize int) error {
 		for i, s := range stringsList {
 			interfacesList[i] = s
 		}
-		AllData.Positive = make(map[string][]interface{})
-		AllData.Positive["string"] = interfacesList
+		if fuzzMode == mqutil.FuzzPositive {
+			AllData.Positive = make(map[string][]interface{})
+			AllData.Positive["string"] = interfacesList
+		}
+		if fuzzMode == mqutil.FuzzNegative {
+			AllData.Negative = make(map[string][]interface{})
+			AllData.Negative["string"] = interfacesList
+		}
 	} else {
 		AllData, err = readLocalDataset(datasetPath)
 		if err != nil {
@@ -243,8 +250,12 @@ func ReadDataset(datasetPath, meqaPath string, batchSize int) error {
 	if err != nil {
 		return err
 	}
-	filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive, batchSize)
-	filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative, batchSize)
+	if fuzzMode == mqutil.FuzzPositive {
+		filter(&DoneData.Positive, &AllData.Positive, &Dataset.Positive, batchSize)
+	}
+	if fuzzMode == mqutil.FuzzNegative {
+		filter(&DoneData.Negative, &AllData.Negative, &Dataset.Negative, batchSize)
+	}
 	return nil
 }
 
