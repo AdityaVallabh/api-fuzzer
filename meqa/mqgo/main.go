@@ -36,7 +36,7 @@ const (
 )
 
 const (
-	SupportedFuzzTypes = "Supported fuzz types: positive, datatype , negative or all"
+	SupportedFuzzTypes = "Supported fuzz types: positive, datatype, negative or all"
 )
 
 func writeConfigFile(configPath string, configMap map[string]interface{}) error {
