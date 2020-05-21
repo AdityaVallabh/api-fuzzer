@@ -36,7 +36,7 @@ const (
 )
 
 const (
-	SupportedFuzzTypes = "Supported fuzz types: positive, datatype, negative or all"
+	SupportedFuzzTypes = "Supported fuzz types: none, positive, datatype, negative or all"
 )
 
 func writeConfigFile(configPath string, configMap map[string]interface{}) error {
@@ -320,6 +320,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 
 	var fuzzMode string
 	switch strings.ToLower(*fuzzType) {
+	case "none": // Accept 'none' as valid fuzzType and leave fuzzMode empty
 	case mqutil.FuzzPositive, mqutil.FuzzNegative, mqutil.FuzzDataType, mqutil.FuzzAll:
 		fuzzMode = *fuzzType
 	default:
