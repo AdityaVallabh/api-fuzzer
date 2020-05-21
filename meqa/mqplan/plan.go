@@ -330,8 +330,12 @@ func (plan *TestPlan) WriteFailures(path string) error {
 	}
 	for _, v := range plan.NewFailures {
 		v.Meta = meta
-		if err := d1.Encode(v); err != nil {
-			return err
+		if v.FuzzType != mqutil.FuzzDataType {
+			// Values for FuzzDataType errors are randomly generated,
+			// so it's enough to show the failing values in newFailures
+			if err := d1.Encode(v); err != nil {
+				return err
+			}
 		}
 		if err := d2.Encode(v); err != nil {
 			return err
