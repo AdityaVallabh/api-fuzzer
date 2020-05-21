@@ -1223,6 +1223,10 @@ func removeNulls(inputMap *map[string]interface{}) {
 
 func validate(s mqswag.SchemaRef, c interface{}) bool {
 	if s.Value.Type == gojsonschema.TYPE_STRING {
+		if s.Value.Nullable && len(c.(string)) == 0 {
+			// Some APIs treat empty string as null
+			return true
+		}
 		if s.Value.MinLength > uint64(len(c.(string))) || (s.Value.MaxLength != nil && uint64(len(c.(string))) > *s.Value.MaxLength) {
 			return false
 		}
