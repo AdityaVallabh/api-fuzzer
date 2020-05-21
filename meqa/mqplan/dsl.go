@@ -40,10 +40,6 @@ const (
 	StatusCodeNoResponse      = 204       // Delete success
 	StatusCodeBadRequest      = 400       // Due to incorrect body parameters
 	StatusCodeTooManyRequests = 429       // API rate limiting
-
-	FuzzPositive = 1
-	FuzzDataType = 2
-	FuzzNegative = 3
 )
 
 type Datum interface{}
@@ -121,7 +117,7 @@ type Test struct {
 	// Map of Object name (matching definitions) to the Comparison object.
 	// This tracks what objects we need to add to DB at the end of test.
 	comparisons map[string]([]*Comparison)
-	sampleSpace map[string][]interface{}
+	sampleSpace map[string][]mqutil.FuzzValue
 
 	tag   *mqswag.MeqaTag // The tag at the top level that describes the test
 	db    *mqswag.DB
@@ -175,7 +171,7 @@ func (t *Test) SchemaDuplicate() *Test {
 	test.op = nil
 	test.resp = nil
 	test.comparisons = make(map[string]([]*Comparison))
-	test.sampleSpace = make(map[string][]interface{})
+	test.sampleSpace = make(map[string][]mqutil.FuzzValue)
 	test.err = nil
 	test.db = test.suite.db
 
@@ -846,7 +842,7 @@ func deleteResource(t *Test) {
 	}
 }
 
-func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan chan<- *mqswag.Payload, wg *sync.WaitGroup) {
+func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey, fuzzType string, failChan chan<- *mqswag.Payload, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for _, cList := range t.comparisons {
 		for _, c := range cList {
@@ -855,7 +851,7 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan 
 	}
 	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
 	expectStatus := StatusSuccess
-	if t.suite.plan.FuzzType >= FuzzDataType {
+	if fuzzType == mqutil.FuzzDataType || fuzzType == mqutil.FuzzNegative {
 		if t.Expect == nil {
 			t.Expect = make(map[string]interface{})
 		}
@@ -870,6 +866,7 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan 
 			Method:   t.Method,
 			Field:    fkey,
 			Value:    copyMap[fkey],
+			FuzzType: fuzzType,
 			Expected: expectStatus,
 			Actual:   t.resp.Status(),
 			Message:  t.resp.String(),
@@ -887,13 +884,13 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey string, failChan 
 	}
 }
 
-func (t *Test) getSamples() (map[string][]interface{}, int) {
-	samples, totalTests := make(map[string][]interface{}), 1
+func (t *Test) getSamples() (map[string][]mqutil.FuzzValue, int) {
+	samples, totalTests := make(map[string][]mqutil.FuzzValue), 1
 	if t.BodyParams != nil {
 		history := t.suite.plan.OldFailuresMap[t.Path][t.Method]
 		if t.suite.plan.Repro {
 			for key, choices := range history {
-				samples[key] = make([]interface{}, 0, len(choices))
+				samples[key] = make([]mqutil.FuzzValue, 0, len(choices))
 				for choice := range choices {
 					samples[key] = append(samples[key], choice)
 					totalTests++
@@ -901,7 +898,7 @@ func (t *Test) getSamples() (map[string][]interface{}, int) {
 			}
 		} else {
 			for key, choices := range t.sampleSpace {
-				samples[key] = make([]interface{}, 0, len(choices))
+				samples[key] = make([]mqutil.FuzzValue, 0, len(choices))
 				for _, choice := range choices {
 					if !(history[key][choice]) {
 						samples[key] = append(samples[key], choice)
@@ -918,6 +915,7 @@ func fuzzTest(baseTest *Test) ([]*mqswag.Payload, error) {
 	samples, totalTests := baseTest.getSamples()
 	inParallel := baseTest.Method != mqswag.MethodPut
 	fmt.Printf("Executing tests: %v\nIn parallel: %v\n", totalTests, inParallel)
+	baseTest.suite.plan.ResultCounts[mqutil.FuzzTotal] += totalTests - 1 // Excluding baseTest
 	baseCopy := baseTest.Duplicate()
 	errPositive := baseTest.Do()
 	failChan := make(chan *mqswag.Payload, totalTests)
@@ -928,12 +926,12 @@ func fuzzTest(baseTest *Test) ([]*mqswag.Payload, error) {
 				testCopy := baseCopy.Duplicate()
 				copyMap := mqutil.MapCopy(testCopy.BodyParams.(map[string]interface{}))
 				testCopy.generateUniqueKeys(copyMap)
-				copyMap[key] = choice
+				copyMap[key] = choice.Value
 				wg.Add(1)
 				if inParallel {
-					go fuzzRequest(testCopy, copyMap, key, failChan, &wg)
+					go fuzzRequest(testCopy, copyMap, key, choice.FuzzType, failChan, &wg)
 				} else {
-					fuzzRequest(testCopy, copyMap, key, failChan, &wg)
+					fuzzRequest(testCopy, copyMap, key, choice.FuzzType, failChan, &wg)
 				}
 			}
 		}
@@ -1334,28 +1332,31 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
-		if t.suite.plan.FuzzType == FuzzPositive {
+		if t.suite.plan.FuzzType == mqutil.FuzzPositive || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
 				if validate(s, c) {
-					t.sampleSpace[name] = append(t.sampleSpace[name], c)
+					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzPositive}
+					t.sampleSpace[name] = append(t.sampleSpace[name], fuzzValue)
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == FuzzDataType && s.Value.Type != gojsonschema.TYPE_STRING {
+		if (t.suite.plan.FuzzType == mqutil.FuzzDataType || t.suite.plan.FuzzType == mqutil.FuzzAll) && s.Value.Type != gojsonschema.TYPE_STRING {
 			s.Value.Format = ""
 			for _, valueType := range dataTypes {
 				if valueType != s.Value.Type {
 					res, err := generateValue(valueType, s, prefix)
+					fuzzValue := mqutil.FuzzValue{Value: res, FuzzType: mqutil.FuzzDataType}
 					if res != nil && err == nil {
-						t.sampleSpace[name] = append(t.sampleSpace[name], res)
+						t.sampleSpace[name] = append(t.sampleSpace[name], fuzzValue)
 					}
 				}
 			}
 		}
-		if t.suite.plan.FuzzType == FuzzNegative {
+		if t.suite.plan.FuzzType == mqutil.FuzzNegative || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
 				if !validate(s, c) {
-					t.sampleSpace[name] = append(t.sampleSpace[name], c)
+					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzNegative}
+					t.sampleSpace[name] = append(t.sampleSpace[name], fuzzValue)
 				}
 			}
 		}
