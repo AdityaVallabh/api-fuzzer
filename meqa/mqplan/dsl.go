@@ -1418,7 +1418,9 @@ func RandomTime(t time.Time, r time.Duration) time.Time {
 // date ranges. Prefix is a prefix to use when generating strings. It's only used when there is
 // no specified pattern in the swagger.json
 func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
-	s.Value.Pattern = generatePattern(s.Value.Format)
+	if len(s.Value.Pattern) == 0 {
+		s.Value.Pattern = generatePattern(s.Value.Format)
+	}
 	if s.Value.Format == "date-time" {
 		t := RandomTime(time.Now(), time.Hour*24*30)
 		return t.Format(time.RFC3339), nil
