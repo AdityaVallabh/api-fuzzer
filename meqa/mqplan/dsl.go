@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -1221,24 +1220,6 @@ func removeNulls(inputMap *map[string]interface{}) {
 	*inputMap = filteredMap
 }
 
-func validate(s mqswag.SchemaRef, c interface{}) bool {
-	if s.Value.Type == gojsonschema.TYPE_STRING {
-		if s.Value.MinLength > uint64(len(c.(string))) || (s.Value.MaxLength != nil && uint64(len(c.(string))) > *s.Value.MaxLength) {
-			return false
-		}
-	} else if s.Value.Type == gojsonschema.TYPE_NUMBER || s.Value.Type == gojsonschema.TYPE_INTEGER {
-		if (s.Value.Min != nil && *s.Value.Min > c.(float64)) || (s.Value.Max != nil && c.(float64) > *s.Value.Max) {
-			return false
-		}
-	}
-	if len(s.Value.Pattern) > 0 {
-		if ok, _ := regexp.MatchString(s.Value.Pattern, fmt.Sprint(c)); !ok {
-			return false
-		}
-	}
-	return true
-}
-
 func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
 	switch method {
 	case mqswag.MethodGet:
@@ -1334,7 +1315,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		}
 		if t.suite.plan.FuzzType == mqutil.FuzzPositive || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
-				if validate(s, c) {
+				if mqswag.Validate(c) {
 					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzPositive}
 					t.sampleSpace[name] = append(t.sampleSpace[name], fuzzValue)
 				}
@@ -1354,7 +1335,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		}
 		if t.suite.plan.FuzzType == mqutil.FuzzNegative || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
-				if !validate(s, c) {
+				if !mqswag.Validate(s, c) {
 					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzNegative}
 					t.sampleSpace[name] = append(t.sampleSpace[name], fuzzValue)
 				}
