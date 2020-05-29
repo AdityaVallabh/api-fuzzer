@@ -1315,7 +1315,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		}
 		if t.suite.plan.FuzzType == mqutil.FuzzPositive || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
-				if mqswag.Validate(c) {
+				if mqswag.Validate(s, c) {
 					fuzzValue := mqutil.FuzzValue{Value: c, FuzzType: mqutil.FuzzPositive}
 					t.sampleSpace[name] = append(t.sampleSpace[name], fuzzValue)
 				}
