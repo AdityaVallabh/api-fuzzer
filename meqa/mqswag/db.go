@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
 
@@ -291,7 +292,8 @@ func (schema SchemaRef) Iterate(iterFunc SchemaIterator, context interface{}, sw
 
 func Validate(s SchemaRef, c interface{}) bool {
 	if s.Value.Type == gojsonschema.TYPE_STRING {
-		if s.Value.MinLength > uint64(len(c.(string))) || (s.Value.MaxLength != nil && uint64(len(c.(string))) > *s.Value.MaxLength) {
+		length := uint64(utf8.RuneCountInString(c.(string)))
+		if s.Value.MinLength > length || (s.Value.MaxLength != nil && length > *s.Value.MaxLength) {
 			return false
 		}
 	} else if s.Value.Type == gojsonschema.TYPE_NUMBER || s.Value.Type == gojsonschema.TYPE_INTEGER {
