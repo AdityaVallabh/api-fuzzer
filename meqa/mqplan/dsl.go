@@ -956,7 +956,8 @@ func (t *Test) Do() error {
 	path := tc.plan.BaseURL + t.SetRequestParameters(req)
 	var resp *resty.Response
 	var err error
-	for retries := 0; retries < MaxRetries; retries++ {
+	fmt.Printf("calling API=%v Method=%v\n", t.Path, t.Method)
+	for retries := 1; retries <= MaxRetries; retries++ {
 		t.startTime = time.Now()
 		switch t.Method {
 		case mqswag.MethodGet:
@@ -977,11 +978,12 @@ func (t *Test) Do() error {
 			return mqutil.NewError(mqutil.ErrInvalid, fmt.Sprintf("Unknown method in test %s: %v", t.Name, t.Method))
 		}
 		t.stopTime = time.Now()
-		fmt.Printf("... call completed: %f seconds. API=%v Method=%v\n", t.stopTime.Sub(t.startTime).Seconds(), t.Path, t.Method)
+		fmt.Printf("... call completed: %f seconds. Status=%v, API=%v Method=%v\n", t.stopTime.Sub(t.startTime).Seconds(), resp.StatusCode(), t.Path, t.Method)
 		if err == nil && resp.StatusCode() != StatusCodeTooManyRequests {
 			break
 		}
-		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000)))
+		req.Header["Cookie"] = nil
+		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000*retries)))
 	}
 	tries := MaxRetries
 	for mqswag.MethodDelete == t.Method && resp.StatusCode() != StatusCodeNoResponse && tries >= 0 {
