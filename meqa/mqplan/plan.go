@@ -1,8 +1,10 @@
 package mqplan
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -21,7 +23,9 @@ import (
 
 const (
 	MeqaInit  = "meqa_init"
-	MeqaFails = ".mqfails.yml"
+	MeqaFails = "mqfails.jsonl"
+	NewFails  = "newFails.jsonl"
+	MetaFile  = "meta.yml"
 )
 
 type TestParams struct {
@@ -123,10 +127,13 @@ type TestPlan struct {
 	// Run result.
 	resultList   []*Test
 	ResultCounts map[string]int
-	Failures     mqswag.FailureCases
+
+	OldFailuresMap map[string]map[string]map[string]map[mqutil.FuzzValue]bool // endpoint->method->field->(value,fuzzType)->bool
+	NewFailures    []*mqswag.Payload
+	OtherFailures  []*mqswag.Payload // Failures where fuzzType != currFuzzType
 
 	comment  string
-	FuzzType int
+	FuzzType string
 	Repro    bool
 }
 
@@ -190,11 +197,38 @@ func (plan *TestPlan) InitFromFile(path string, db *mqswag.DB) error {
 }
 
 func (plan *TestPlan) ReadFails(path string) error {
-	data, err := ioutil.ReadFile(filepath.Join(path, MeqaFails))
+	f, err := os.Open(filepath.Join(path, MeqaFails))
+	defer f.Close()
 	if err != nil {
 		return err
 	}
-	return yaml.Unmarshal([]byte(data), &plan.Failures)
+	failures := make(map[string]map[string]map[string]map[mqutil.FuzzValue]bool)
+	d := json.NewDecoder(f)
+	for {
+		var v mqswag.Payload
+		if err := d.Decode(&v); err == io.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+		if failures[v.Endpoint] == nil {
+			failures[v.Endpoint] = make(map[string]map[string]map[mqutil.FuzzValue]bool)
+		}
+		if failures[v.Endpoint][v.Method] == nil {
+			failures[v.Endpoint][v.Method] = make(map[string]map[mqutil.FuzzValue]bool)
+		}
+		if failures[v.Endpoint][v.Method][v.Field] == nil {
+			failures[v.Endpoint][v.Method][v.Field] = make(map[mqutil.FuzzValue]bool)
+		}
+		if plan.FuzzType == v.FuzzType || plan.FuzzType == mqutil.FuzzAll {
+			fuzzValue := mqutil.FuzzValue{Value: v.Value, FuzzType: v.FuzzType}
+			failures[v.Endpoint][v.Method][v.Field][fuzzValue] = true
+		} else {
+			plan.OtherFailures = append(plan.OtherFailures, &v)
+		}
+	}
+	plan.OldFailuresMap = failures
+	return nil
 }
 
 func WriteComment(comment string, f *os.File) {
@@ -251,17 +285,59 @@ func (plan *TestPlan) WriteResultToFile(path string) error {
 	return p.DumpToFile(path)
 }
 
-func (plan *TestPlan) WriteFailures(path string) error {
-	data, err := yaml.Marshal(plan.Failures)
+func ReadMetadata(path string) map[string]interface{} {
+	var meta map[string]interface{}
+	data, err := ioutil.ReadFile(filepath.Join(path, MetaFile))
+	if err != nil {
+		fmt.Println("File not found:", err)
+	}
+	err = yaml.Unmarshal([]byte(data), &meta)
 	if err != nil {
 		mqutil.Logger.Printf("error: %v", err)
+	}
+	return meta
+}
+
+func (plan *TestPlan) WriteFailures(path string) error {
+	flags := os.O_CREATE | os.O_WRONLY
+	var perms os.FileMode
+	if plan.Repro {
+		flags |= os.O_TRUNC
+		perms = 0755
+	} else {
+		flags |= os.O_APPEND
+		perms = 0644
+	}
+	mqFails, err := os.OpenFile(filepath.Join(path, MeqaFails), flags, perms)
+	defer mqFails.Close()
+	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(filepath.Join(path, MeqaFails), data, 0644)
+	newFails, err := os.OpenFile(filepath.Join(path, NewFails), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	defer newFails.Close()
 	if err != nil {
-		mqutil.Logger.Printf("error: %v", err)
+		return err
 	}
-	return err
+	d1 := json.NewEncoder(mqFails)
+	d2 := json.NewEncoder(newFails)
+	meta := ReadMetadata(path)
+	if plan.Repro {
+		for _, v := range plan.OtherFailures {
+			if err := d1.Encode(v); err != nil {
+				return err
+			}
+		}
+	}
+	for _, v := range plan.NewFailures {
+		v.Meta = meta
+		if err := d1.Encode(v); err != nil {
+			return err
+		}
+		if err := d2.Encode(v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (plan *TestPlan) LogErrors() {
@@ -309,6 +385,10 @@ func (plan *TestPlan) PrintSummary() {
 	fmt.Printf("%v: %v\n", mqutil.SchemaMismatch, plan.ResultCounts[mqutil.SchemaMismatch])
 	fmt.Print(mqutil.AQUA)
 	fmt.Printf("%v: %v\n", mqutil.Total, plan.ResultCounts[mqutil.Total])
+	fmt.Print(mqutil.RED)
+	fmt.Printf("%v: %v\n", mqutil.FuzzFails, len(plan.NewFailures))
+	fmt.Print(mqutil.AQUA)
+	fmt.Printf("%v: %v\n", mqutil.FuzzTotal, plan.ResultCounts[mqutil.FuzzTotal])
 	fmt.Print(mqutil.END)
 }
 
@@ -365,11 +445,10 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		}
 		payloads, err := dup.Run(tc)
 		if payloads != nil && len(payloads) > 0 {
-			name := dup.Path + "_" + dup.Method
-			if plan.Repro {
-				plan.Failures.CaseMap[name] = make([]mqswag.Payload, 0, len(payloads))
+			if plan.NewFailures == nil {
+				plan.NewFailures = make([]*mqswag.Payload, 0, len(payloads))
 			}
-			plan.Failures.CaseMap[name] = append(plan.Failures.CaseMap[name], payloads...)
+			plan.NewFailures = append(plan.NewFailures, payloads...)
 		}
 		dup.err = err
 		plan.resultList = append(plan.resultList, dup)

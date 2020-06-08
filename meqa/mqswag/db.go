@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
 
@@ -123,14 +125,24 @@ func (schema SchemaRef) Parses(name string, object interface{}, collection map[s
 		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_INTEGER) && !strings.Contains(schema.Value.Type, gojsonschema.TYPE_NUMBER) {
 			return raiseError("schema is not an integer")
 		}
+		if !Validate(schema, object) {
+			return raiseError("integer validation failed")
+		}
 	} else if k == reflect.Float32 || k == reflect.Float64 {
 		// After unmarshal, the map only holds floats. It doesn't differentiate int and float.
 		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_INTEGER) && !strings.Contains(schema.Value.Type, gojsonschema.TYPE_NUMBER) {
 			return raiseError("schema is not a floating point number")
 		}
+		if !Validate(schema, object) {
+			return raiseError("float validation failed")
+		}
 	} else if k == reflect.String {
 		bothAreNumbers := reflect.TypeOf(object).String() == "json.Number" && (strings.Contains(schema.Value.Type, gojsonschema.TYPE_INTEGER) || strings.Contains(schema.Value.Type, gojsonschema.TYPE_NUMBER))
-		if !strings.Contains(schema.Value.Type, gojsonschema.TYPE_STRING) && !bothAreNumbers {
+		if strings.Contains(schema.Value.Type, gojsonschema.TYPE_STRING) {
+			if !Validate(schema, object) {
+				return raiseError("string validation failed")
+			}
+		} else if !bothAreNumbers {
 			return raiseError("schema is not a number")
 		}
 	} else if k == reflect.Map {
@@ -276,6 +288,25 @@ func (schema SchemaRef) Iterate(iterFunc SchemaIterator, context interface{}, sw
 		}
 	}
 	return nil
+}
+
+func Validate(s SchemaRef, c interface{}) bool {
+	if s.Value.Type == gojsonschema.TYPE_STRING {
+		length := uint64(utf8.RuneCountInString(c.(string)))
+		if s.Value.MinLength > length || (s.Value.MaxLength != nil && length > *s.Value.MaxLength) {
+			return false
+		}
+	} else if s.Value.Type == gojsonschema.TYPE_NUMBER || s.Value.Type == gojsonschema.TYPE_INTEGER {
+		if (s.Value.Min != nil && *s.Value.Min > c.(float64)) || (s.Value.Max != nil && c.(float64) > *s.Value.Max) {
+			return false
+		}
+	}
+	if len(s.Value.Pattern) > 0 {
+		if ok, _ := regexp.MatchString(s.Value.Pattern, fmt.Sprint(c)); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 type DBEntry struct {

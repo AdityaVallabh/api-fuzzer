@@ -14,6 +14,8 @@ const (
 	Skipped        = "Skipped"
 	SchemaMismatch = "SchemaMismatch"
 	Total          = "Total"
+	FuzzTotal      = "Fuzz Total"
+	FuzzFails      = "Fuzz Fails"
 )
 
 // Colors for better logging
