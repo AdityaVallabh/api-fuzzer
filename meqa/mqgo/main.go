@@ -412,4 +412,8 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 			}
 		}
 	}
+	// Exit with non-zero code only for functional failures
+	if mqplan.Current.ResultCounts[mqutil.Failed] > 0 {
+		os.Exit(3)
+	}
 }
