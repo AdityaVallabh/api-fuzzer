@@ -835,10 +835,14 @@ func deleteResource(t *Test) {
 			dTest = dTest.Duplicate()
 			dTest.PathParams["id"] = id
 			dTest.op = spec.NewOperation()
-			dTest.comparisons = t.comparisons
-			for _, v := range dTest.comparisons {
-				for _, c := range v {
-					c.oldUsed = c.new
+			// The object was added to db only if there was no error
+			// So ensure there was no error, then prepare for delete
+			if t.responseError == nil && t.schemaError == nil {
+				dTest.comparisons = t.comparisons
+				for _, v := range dTest.comparisons {
+					for _, c := range v {
+						c.oldUsed = c.new
+					}
 				}
 			}
 			dTest.Do()

@@ -349,7 +349,7 @@ func runMeqa(meqaPath, swaggerFile, testPlanFile, resultPath,
 			os.Exit(1)
 		}
 		if !*repro {
-			mqswag.ReadDataset(*datasetPath, *meqaPath, fuzzMode, *batchSize)
+			err := mqswag.ReadDataset(*datasetPath, *meqaPath, fuzzMode, *batchSize)
 			if err != nil {
 				fmt.Println("Error reading datasets -", err.Error())
 				os.Exit(1)
