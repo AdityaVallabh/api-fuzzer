@@ -320,8 +320,13 @@ func (t *Test) ResponseInDb(className string, associations map[string]map[string
 		}
 	}
 	if numMiss > 0 {
+		var found string
+		if len(dbArray) > 0 {
+			b, _ := json.Marshal(dbArray[0])
+			found = string(b)
+		}
 		fmt.Printf("Result not found on client. Fail\n")
-		t.responseError = fmt.Sprintf("%v remote objects missing in client\nMissing:%v", numMiss, missing)
+		t.responseError = fmt.Sprintf("%v remote objects missing in client\nMissing:%v\nFound %v like:%v", numMiss, missing, len(dbArray), found)
 		return mqutil.NewError(mqutil.ErrHttp, fmt.Sprintf("remote object not found in client\n"))
 	}
 	fmt.Printf("Success\n")
