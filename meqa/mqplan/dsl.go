@@ -153,6 +153,7 @@ func (t *Test) Init(suite *TestSuite) {
 	}
 }
 
+// Duplicate the schema with empty values
 func (t *Test) SchemaDuplicate() *Test {
 	test := *t
 	test.Expect = mqutil.MapCopy(test.Expect)
@@ -177,6 +178,7 @@ func (t *Test) SchemaDuplicate() *Test {
 	return &test
 }
 
+// Copy the schema with values
 func (t *Test) Duplicate() *Test {
 	copyTest := t.SchemaDuplicate()
 	copyTest.op = t.op
@@ -293,6 +295,7 @@ func (t *Test) GetClientDB(className string, associations map[string]map[string]
 	return dbArray
 }
 
+// Every object in the response must be in the client db
 func (t *Test) ResponseInDb(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
 	fmt.Printf("... checking GET result against client. ")
 	dbArray := t.GetClientDB(className, associations)
@@ -333,6 +336,7 @@ func (t *Test) ResponseInDb(className string, associations map[string]map[string
 	return nil
 }
 
+// Every object in the client db must be in the response
 func (t *Test) DbInResponse(className string, associations map[string]map[string]interface{}, resultArray []interface{}) error {
 	fmt.Printf("... checking client objects against GET result. ")
 	dbArray := t.GetClientDB(className, associations)
@@ -369,6 +373,7 @@ func (t *Test) DbInResponse(className string, associations map[string]map[string
 }
 
 // ProcessOneComparison processes one comparison object.
+// Adds/Updates/Deletes objects from the client db
 func (t *Test) ProcessOneComparison(className string, method string, comp *Comparison,
 	associations map[string]map[string]interface{}, collection map[string][]interface{}) error {
 
@@ -640,6 +645,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 						newcompList = append(newcompList, &c)
 					}
 					collection[className] = nil
+					// Check if the common fields between request and response match
 					if t.Strict {
 						for _, comp := range compList {
 							found := false
@@ -676,6 +682,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 				}
 			}
 		}
+		// Add all fields in the response (including extra ones like metadata) to comparisons list
 		for className, resultArray := range collection {
 			objTag := mqswag.MeqaTag{className, "", "", 0}
 			for _, c := range resultArray {
@@ -697,6 +704,9 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 		// For gets, we process based on the result collection's class.
 		for className, resultArray := range collection {
 			var err error
+			// If the path ends with the {objectID}, there's a good chance the response only contains one object
+			// So the response must be found in the db
+			// If it doesn't end with an {id} it's probably a listing endpoint and the db must be a subset of the response
 			isGetSingleObject := t.Path[len(t.Path)-1] == '}'
 			if isGetSingleObject {
 				err = t.ResponseInDb(className, associations, resultArray)
@@ -709,6 +719,7 @@ func (t *Test) ProcessResult(resp *resty.Response) error {
 			}
 		}
 	} else {
+		// Add all comparisons to db
 		for className, compArray := range t.comparisons {
 			for _, c := range compArray {
 				err := t.ProcessOneComparison(className, method, c, associations, collection)
@@ -807,6 +818,8 @@ func (t *Test) CopyParent(parentTest *Test) {
 		}
 	}
 }
+
+// Often, requests require a unique field. Here, we generate and assign a new one randomly
 func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
 	bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
 	_, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
@@ -819,6 +832,7 @@ func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
 	}
 }
 
+// When fuzzing, a lot of assets are created which are cleaned up by this func
 func deleteResource(t *Test) {
 	var result map[string]interface{}
 	json.Unmarshal([]byte(t.resp.String()), &result)
@@ -826,6 +840,7 @@ func deleteResource(t *Test) {
 		t.Method = mqswag.MethodDelete
 		t.BodyParams = nil
 		var dTest *Test
+		// Pick the last delete test which is usually the one deleting the resource
 		for _, test := range t.suite.Tests {
 			if test.Method == mqswag.MethodDelete {
 				dTest = test
@@ -859,6 +874,7 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey, fuzzType string,
 	}
 	t.BodyParams = mqutil.MapCombine(t.BodyParams.(map[string]interface{}), copyMap)
 	expectStatus := StatusSuccess
+	// If request is expected to fail, set the expectation to BadRequest
 	if fuzzType == mqutil.FuzzDataType || fuzzType == mqutil.FuzzNegative {
 		if t.Expect == nil {
 			t.Expect = make(map[string]interface{})
@@ -868,6 +884,7 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey, fuzzType string,
 		expectStatus = fmt.Sprint(StatusCodeBadRequest)
 	}
 	err := t.Do()
+	// If there were any errors, capture them in a payload object and send them over the failures channel
 	if err != nil {
 		payload := &mqswag.Payload{
 			Endpoint: t.Path,
@@ -887,16 +904,19 @@ func fuzzRequest(t *Test, copyMap map[string]interface{}, fkey, fuzzType string,
 		}
 		fmt.Printf("Expecting %v; Got %v: %v\nRequest Body: %v\n", expectStatus, t.resp.StatusCode(), t.resp.String(), string(b))
 	}
+	// If the object was created, delete it
 	if t.Method == mqswag.MethodPost && t.resp.StatusCode() == StatusCodeOk {
 		deleteResource(t)
 	}
 }
 
+// Returns a list of values to be fuzzed for each field in the request body
 func (t *Test) getSamples() (map[string][]mqutil.FuzzValue, int) {
 	samples, totalTests := make(map[string][]mqutil.FuzzValue), 1
 	if t.BodyParams != nil {
 		history := t.suite.plan.OldFailuresMap[t.Path][t.Method]
 		if t.suite.plan.Repro {
+			// Return values from previous failures
 			for key, choices := range history {
 				samples[key] = make([]mqutil.FuzzValue, 0, len(choices))
 				for choice := range choices {
@@ -905,6 +925,7 @@ func (t *Test) getSamples() (map[string][]mqutil.FuzzValue, int) {
 				}
 			}
 		} else {
+			// Skip any known failures and return new values
 			for key, choices := range t.sampleSpace {
 				samples[key] = make([]mqutil.FuzzValue, 0, len(choices))
 				for _, choice := range choices {
@@ -919,6 +940,7 @@ func (t *Test) getSamples() (map[string][]mqutil.FuzzValue, int) {
 	return samples, totalTests
 }
 
+// Executes the baseTest and if no error, proceeds to fuzzing
 func fuzzTest(baseTest *Test) ([]*mqswag.Payload, error) {
 	samples, totalTests := baseTest.getSamples()
 	inParallel := baseTest.Method != mqswag.MethodPut
@@ -929,6 +951,11 @@ func fuzzTest(baseTest *Test) ([]*mqswag.Payload, error) {
 	failChan := make(chan *mqswag.Payload, totalTests)
 	var wg sync.WaitGroup
 	if errPositive == nil {
+		// For each field, for each value
+		// 1) duplicate the baseTest
+		// 2) replace the unique fields with random values
+		// 3) replace the chosen field's value
+		// 4) make the request either parallely or sequentially
 		for key, choices := range samples {
 			for _, choice := range choices {
 				testCopy := baseCopy.Duplicate()
@@ -1151,6 +1178,7 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 			if err != nil {
 				return err
 			}
+			// Override generated params with static params if provided
 			if genMap, genIsMap := genParam.(map[string]interface{}); genIsMap {
 				if tcBodyMap, tcIsMap := tc.BodyParams.(map[string]interface{}); tcIsMap {
 					bodyMap = mqutil.MapAdd(bodyMap, tcBodyMap)
@@ -1202,11 +1230,12 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 			continue
 		}
 		genParam, err = t.GenerateParameter(params.Value, t.db)
+		if err != nil {
+			return err
+		}
 		paramsMap[params.Value.Name] = genParam
 	}
-	if err != nil {
-		return err
-	}
+	// If static param is specified as null, omit setting this param in the request
 	paramMaps := []*map[string]interface{}{&t.PathParams, &t.QueryParams, &t.HeaderParams, &t.FormParams}
 	for _, m := range paramMaps {
 		removeNulls(m)
@@ -1324,6 +1353,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 		if result != nil && err == nil {
 			t.AddBasicComparison(tag, paramSpec, result)
 		}
+		// Add positive cases to list possible values for the field
 		if t.suite.plan.FuzzType == mqutil.FuzzPositive || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Positive[s.Value.Type] {
 				if mqswag.Validate(s, c) {
@@ -1332,6 +1362,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
+		// Add values of a different datatype than what's expected in the field
 		if (t.suite.plan.FuzzType == mqutil.FuzzDataType || t.suite.plan.FuzzType == mqutil.FuzzAll) && s.Value.Type != gojsonschema.TYPE_STRING {
 			s.Value.Format = ""
 			for _, valueType := range dataTypes {
@@ -1344,6 +1375,7 @@ func (t *Test) generateByType(s mqswag.SchemaRef, prefix string, parentTag *mqsw
 				}
 			}
 		}
+		// Add negative cases to the list of fuzzable values for the field
 		if t.suite.plan.FuzzType == mqutil.FuzzNegative || t.suite.plan.FuzzType == mqutil.FuzzAll {
 			for _, c := range mqswag.Dataset.Negative[s.Value.Type] {
 				if !mqswag.Validate(s, c) {
@@ -1456,12 +1488,14 @@ func generateBool(s mqswag.SchemaRef) (interface{}, error) {
 
 func generateFloat(s mqswag.SchemaRef) (float64, error) {
 	var realmin float64
+	// Set the minimum, if available
 	if s.Value.Min != nil {
 		realmin = *s.Value.Min
 		if s.Value.ExclusiveMin {
 			realmin += 0.01
 		}
 	}
+	// Set the maximum, if available
 	var realmax float64
 	if s.Value.Max != nil {
 		realmax = *s.Value.Max
@@ -1483,10 +1517,13 @@ func generateFloat(s mqswag.SchemaRef) (float64, error) {
 				*s.Value.Min, *s.Value.Max))
 		}
 	}
+	// If nothing is provided in the schema, choose a real number <10
 	if realmin == 0 && realmax == 0 {
 		realmax = 10.0
 	}
 	ret := rand.Float64()*(realmax-realmin) + realmin
+	// Keep generating a new float until it cannot be casted to an integer
+	// We want to generate floats like 7.01 and not 7.00
 	for ret == float64(int(ret)) {
 		ret = rand.Float64()*(realmax-realmin) + realmin
 	}
