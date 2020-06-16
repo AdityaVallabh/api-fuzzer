@@ -15,9 +15,9 @@ func TestMqgen(t *testing.T) {
 	swaggerPath := filepath.Join(meqaPath, "petstore_meqa.yml")
 	algorithm := "all"
 	verbose := false
-	whitelistPath := ""
+	allowedAPIsPath := ""
 	ignoredPathsPath := ""
-	run(&meqaPath, &swaggerPath, &algorithm, &verbose, &whitelistPath, &ignoredPathsPath)
+	run(&meqaPath, &swaggerPath, &algorithm, &verbose, &allowedAPIsPath, &ignoredPathsPath)
 }
 
 func TestMain(m *testing.M) {
