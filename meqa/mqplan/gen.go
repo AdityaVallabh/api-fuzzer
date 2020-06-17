@@ -200,9 +200,8 @@ func GeneratePathTestSuite(operations mqswag.NodeList, plan *TestPlan) {
 			lastParam := GetLastPathParam(o.GetName())
 			if len(lastParam) > 0 {
 				for _, repeatOp := range operations {
-					if lastParam == GetLastPathParam(repeatOp.GetName()) &&
-						!OperationMatches(repeatOp, mqswag.MethodDelete) &&
-						!OperationMatches(repeatOp, mqswag.MethodPost) {
+					// Try to GET the object we just deleted to confirm it no longer exists
+					if lastParam == GetLastPathParam(repeatOp.GetName()) && OperationMatches(repeatOp, mqswag.MethodGet) {
 						testId++
 						repeatTest := CreateTestFromOp(repeatOp, testId)
 						repeatTest.PathParams = make(map[string]interface{})
