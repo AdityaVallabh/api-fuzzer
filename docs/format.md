@@ -1,38 +1,8 @@
-# Meqa Tags and Test Plan File Format
-
-Here we explain the meqa tag's meaning and the meqa test plan file structure. The examples in this document are all based on the standard demo [petstore](http://petstore.swagger.io/v2/swagger.yaml).
-
-## Meqa Tags
-
-Meqa inserts `<meqa ...>` tags inside an OpenAPI spec to show its understanding of the spec. The generation and running of test suites depend on this understanding being correct.
-
-The meqa tags are always appended at the end of a relevant OpenAPI entity's description field. The format is `<meqa DefinitionName.PropertyName.MethodType flags>`. It means that the tagged entity actually refers to the entity in the tag.
-
-* DefinitionName - the OpenAPI definition's name.
-* PropertyName - the property of the above definition.
-* MethodType - one of the http methods (e.g. post). This part is only present when we want to override the meaning of the tagged operation. For instance, if the tagged operation is a POST operation, but is actually changing an existing object and thus will be tagged "put". Note that the methods in meqa tags should always be in lower case.
-* Flags - the only flag we support is "weak", indicating a weak reference to break circular dependency.
-
-Example, in the petstore spec, the `<meqa Pet.id>` tag is put on the petId parameter, to indicate that when making a REST call, this parameter should be filled using a Pet object's id property.
-```
-  /pet/{petId}:
-    delete:
-      description: ' <meqa Pet>'
-      operationId: deletePet
-      parameters:
-      - description: Pet id to delete <meqa Pet.id>
-        format: int64
-        in: path
-        name: petId
-        required: true
-        type: integer
-```
-
-## Test Suite Format
+# Test Plan File Format
 
 Each test plan yaml file has multiple test suites separated by '---'. Each test suite can have multiple tests. In the following example, the name of the test suite is "/store/order". The test suites are executed in sequential order.
 
-```
+```yml
 ---
 /store/order:
 - name: post_placeOrder_1
@@ -60,8 +30,6 @@ In this test suite, there are four tests, triggering the following REST calls to
 * DELETE /store/order/{orderId}
 * GET /store/order/{orderId}
 
-Note that the first three tests don't specify any parameters. By default meqa will try to pick good parameters. When placing an order, meqa will order a pet with an existing Pet.id. When getting/deleting an order, meqa will fill the {orderId} path parameter with the Order.id of the order we just placed.
-
 The last test tries to get the order we just deleted, and expects to get a failure. In this case it explicitly sets a path parameter. The following keywords are allowed, mapping to the respective REST call parameter location.
 
 * pathParams
@@ -80,7 +48,7 @@ In the above example, the template '{{delete_deleteOrder_3.pathParams.orderId}}'
 
 As another example, the last test can use the following parameter template to achieve the same result:
 
-```
+```yml
 - name: get_getOrderById_4
   path: /store/order/{orderId}
   method: get
@@ -94,7 +62,7 @@ As another example, the last test can use the following parameter template to ac
 
 The first test suite can have a special "meqa_init" name. The parameters under meqa_init will be applied to all the test suites in the same file. For instance, in the following code that runs against bitbucket's API, we tell all the tests to use a specific username and repo_slug.
 
-```
+```yml
 ---
 meqa_init:
 - name: meqa_init
@@ -105,7 +73,7 @@ meqa_init:
 
 Similarly, each test suite can have its own meqa_init section, to set a parameter for all the tests in that test suite. For instance, the following will hardcode all the "orderId" values in path to be 800800, as well as all the "id" values in body.
 
-```
+```yml
 /store/order:
 - name: meqa_init
   pathParams:

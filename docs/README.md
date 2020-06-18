@@ -1,60 +1,68 @@
-# Installing and Running Meqa
+# Fuzzing
 
-Meqa takes an OpenAPI (formerly Swagger) spec, parses it to understand the structure, the relationship among objects and operations, and generate test suites. It is in its early stage, and only works with OpenAPI version 2.0.
+When the fuzzType parameter is ste, fuzzing will be done on requests having a body of type map/dict.
 
-Meqa achieves its goal in three steps
-* Add <meqa ... > tags to the OpenAPI spec in YAML format to indicate meqa's understanding of the structure of the spec.
-* Use the above tagged OpenAPI spec to generate test suites in yaml.
-* Run test suites.
+- A base request is duplicated
+- Unique field (name/email) is replaced with a random
+- A single body parameter’s value is switched to one from the dataset for every fuzzed request.
 
-The easiest way to try meqa is to install mqgo, which is a small binary. It sends your OpenAPI spec to the demo server (https://api.meqa.io) to be processed and generate the test suites. Mqgo will run your tests locally, so your test target can still be on a private IP or inside a firewall.
+## Dataset
 
-## Installing mqgo
+- Default positive strings dataset set to https://github.com/minimaxir/big-list-of-naughty-strings/ (~500 strings)
+- Optional flag to use local dataset local dataset (yaml)
+  
+## Types of fuzzing
 
-The compiled mqgo binaries are under the "releases" directory of this repo.
+### Positive Fuzzing
 
-If you want to use the Docker containers. The equivalent of the "mqgo" binary is the meqa/go container.
-* docker pull meqa/go:latest
+- A value from the dataset is picked and request is sent
+- Expectation is set to success along with regular checks/assertions
+- The resource is deleted if it was a Create/POST request
+- Only the base request is propagated to the next get, update, delete calls
+- Create/POST requests are parallely executed
+- Update/PUT requests are sequentially executed
 
-## Running mqgo and Using https://api.meqa.io
+### Data type fuzzing
+  
+- Integers, Floats, Bools will be fuzzed with Strings, Integers, Floats, Bools
+- Strings cannot be type fuzzed as any value can be treated as a string
+- Expectation is set to 400
 
-In this example we use the standard [petstore demo](http://petstore.swagger.io). The OpenAPI spec is saved at /testdata/petstore.yml. The first command below sends petstore.yml to api.meqa.io to generate petstore_meqa.yml and test plan yaml files (e.g. path.yml) under the /testdata directory. The second command runs the test suites in path.yml test plan.
+### Negative fuzzing
 
-* mqgo generate -d /testdata -s /testdata/petstore.yml
-* mqgo run -d /testdata -s /testdata/petstore_meqa.yml -p /testdata/path.yml
+- A negative value is picked from the dataset and request is sent
+- Expectatiion is set to 400
+- No need of any checks/assertions
 
-To use Docker container the commands would be
-* docker run -it -v /testdata:/testdata meqa/go mqgo generate -d /testdata -s /testdata/petstore.yml
-* docker run -it -v /testdata:/testdata meqa/go mqgo run -d /testdata -s /testdata/petstore_meqa.yml -p /testdata/path.yml
+Every fuzz value picked from the dataset is validated if any validations are provided in the schema like:
 
-The meqa tag and test plan file format are explained in the [Meqa Format](format.md) doc.
+- Integers
+  - Min value, Max value
+- String
+  - Regex
+  - Min length, max length
 
-## Running Everything Locally
+## Batching
 
-To run everything on your local computer, you need mqtag, mqgen and mqgo.
+- Fuzz datasets can be large it's not feasible to execute tests on the entire dataset for every request.
+- Only a subset of the dataset will bbe used in each run.
+- Tracking is done via **.mqdata.yml** containing already fuzzed data which is updated on each run.
 
-### Build/Install Locally
+## Logging Failures
 
-* mqgen and mqgo
-    * You need to have golang 1.8+ installed. Run mqgo/build-vendor.sh.
-    * To use Docker container instead of the above, docker pull meqa/go:latest.
-* mqtag - Note that building mqtag would take a while, because the NLP libraries are big.
-    * You need to have python 3.5+ installed. Run: pip3 install mqtag
-    * python3 -m spacy download en_core_web_md
-    * Run the following and replace <python_lib_installdir> with your actuall install directory (e.g. /usr/local/lib/python3.6/site-packages) : echo -100000000 > <python_lib_install_dir>/en_core_web_md/en_core_web_md-1.2.1/vocab/oov_prob
-    * To use Docker container instead of the above, docker pull meqa/tag:latest
+Any expectation mismatch will be logged to `.mqfails.jsonl` with the following info:
 
-### Run Locally
+```json
+{
+    "endpoint": "/v1/users/{id}",
+    "method": "PUT",
+    "field": "name",
+    "value": "J0hñ Døę",
+    "expected": "success",
+    "actual": "500 - Internal Server Error",
+    "meta": {}
+}
+```
 
-In this example we use the standard petstore demo. The OpenAPI spec is /testdata/petstore.yml. The first command below takes petstore.yml as input and generates petstore_meqa.yml as output. The second command uses petstore_meqa.yml to generate the test plan yaml files (e.g. path.yml)under the /testdata directory. The third command runs the test suites in path.yml test plan.
-
-* mqtag -i /testdata/petstore.yml -o /testdata/petstore_meqa.yml
-* mqgen -d /testdata -s /testdata/petstore_meqa.yml
-* mqgo run -d /testdata -s /testdata/petstore_meqa.yml -p /testdata/path.yml
-
-To use Docker container the commands would be
-* docker run -it -v /testdata:/testdata meqa/tag mqtag -i /testdata/petstore.yml -o /testdata/petstore_meqa.yml
-* docker run -it -v /testdata:/testdata meqa/go mqgen -d /testdata -s /testdata/petstore_meqa.yml
-* docker run -it -v /testdata:/testdata meqa/go mqgo run -d /testdata -s /testdata/petstore_meqa.yml -p /testdata/path.yml
-
-The meqa tag and test file format are explained in the [meqa Format](format.md) doc.
+- These failures are also skipped in subsequent runs until resolved manually or resolved automatically on running the tool with the `repro` flag.
+- Optional `repro` flag to run tests using these failing values in order to reproduce the issues
