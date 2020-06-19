@@ -1407,7 +1407,7 @@ func generateString(s mqswag.SchemaRef, prefix string) (string, error) {
 		s.Value.Pattern = generatePattern(s.Value.Format)
 	}
 	if s.Value.Format == "date-time" {
-		t := RandomTime(time.Now(), time.Hour*24*30)
+		t := RandomTime(time.Now().UTC(), time.Hour*24*30)
 		return t.Format(time.RFC3339), nil
 	}
 	if s.Value.Format == "date" {
