@@ -809,8 +809,7 @@ func (t *Test) CopyParent(parentTest *Test) {
 }
 func (t *Test) generateUniqueKeys(bodyMap map[string]interface{}) {
 	bodySchema := (mqswag.SchemaRef)(*t.op.RequestBody.Value.Content[mqswag.JsonResponse].Schema)
-	_, schema := t.db.Swagger.GetSchemaRootType(bodySchema, mqswag.GetMeqaTag(bodySchema.Value.Description))
-	propSchemas := schema.GetProperties(t.db.Swagger)
+	propSchemas := bodySchema.GetProperties(t.db.Swagger)
 	for uniqueKey := range mqswag.UniqueKeys {
 		if _, ok := propSchemas[uniqueKey]; ok {
 			prop := (mqswag.SchemaRef)(*propSchemas[uniqueKey])
