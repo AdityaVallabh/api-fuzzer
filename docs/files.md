@@ -1,14 +1,14 @@
 # Configuration Files
 
-## Whitelisting APIs
+## Allowed APIs
 
-The **whitelist.cfg**  gives the ability to whitelist specific APIs in the spec. The following whitelist.cfg would generate tests for endpoints like: `/v1/users`, `/v1/users/{id}`, `/v1/users/{id}/forgotPassword` etc.
+The **allowedAPIs.cfg**  gives the ability to allow specific APIs in the spec. The following allowedAPIs.cfg would generate tests for endpoints like: `/v1/users`, `/v1/users/{id}`, `/v1/users/{id}/forgotPassword` etc.
 
 ```yml
 /v1/users
 ```
 
-By default, if no whitelist.cfg is provided, it is assumed that all the APIs have to be tested.
+By default, if no allowedAPIs.cfg is provided, it is assumed that all the APIs have to be tested.
 
 ## Blacklisting Endpoints
 
@@ -26,7 +26,7 @@ By default, no endpoints are blacklisted.
 
 Fuzzing requires the key of the parameter which has to be unique for every request in order to prevent *duplicate_key* errors.
 
-This list of unique fields can be provided as a list in **uuniqueKeys.yml**:
+This list of unique fields can be provided as a list in **uniqueKeys.yml**:
 
 ```yml
 uniqueKeys:
@@ -39,7 +39,7 @@ During fuzzing, along with the parameter being fuzzed, the above keys would be r
 
 ## Meta
 
-Fuzz failures would be logged to **.mqfails.jsonl** and each line in it will be appended with additional meta data provided in **meta.yml**:
+Fuzz failures would be logged to **mqfails.jsonl** and each line in it will be appended with additional meta data provided in **meta.yml**:
 
 ```yml
 url: https://jenkins.com/job/jobName/buildNumber

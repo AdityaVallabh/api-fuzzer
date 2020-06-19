@@ -50,7 +50,7 @@ Usage of mqgen:
     	the swagger.yml file location (default "meqa_data/swagger.yml")
   -v	turn on verbose mode
   -w string
-    	the whitelisted APIs file location
+    	the allowed APIs file location
 ```
 
 ### mqgo 
