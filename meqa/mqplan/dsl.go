@@ -993,14 +993,6 @@ func (t *Test) Do() error {
 		req.Header["Cookie"] = nil
 		time.Sleep(time.Millisecond * (time.Duration)(1000+rand.Intn(3000*retries)))
 	}
-	tries := MaxRetries
-	for mqswag.MethodDelete == t.Method && resp.StatusCode() != StatusCodeNoResponse && tries >= 0 {
-		fmt.Println("Delete on ", path, "returned", resp.Status(), ". Retrying...")
-		req.Header["Cookie"] = nil
-		time.Sleep(time.Second)
-		resp, err = req.Delete(path)
-		tries--
-	}
 	if err != nil {
 		t.err = mqutil.NewError(mqutil.ErrHttp, err.Error())
 	} else {
