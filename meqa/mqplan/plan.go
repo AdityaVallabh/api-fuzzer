@@ -456,7 +456,7 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 			resultCounts[mqutil.SchemaMismatch]++
 		}
 		if err != nil {
-			fmt.Println(err.Error())
+			mqutil.Logger.Println(err.Error())
 			resultCounts[mqutil.Failed]++
 			if tcErr == nil {
 				tcErr = err
