@@ -1638,7 +1638,7 @@ func (t *Test) GenerateSchema(name string, parentTag *mqswag.MeqaTag, schema mqs
 	if referredSchema.Value != nil {
 		if len(name) > 0 {
 			// This the the field of an object. Instead of generating a new object, we try to get one
-			// from the DB. If we can't find one, we put in null.
+			// from the DB. If we can't find one, only then we generate a new one.
 			found := t.suite.db.Find(referenceName, nil, nil, mqswag.MatchAlways, 1)
 			if len(found) == 0 {
 				found = t.db.Find(referenceName, nil, nil, mqswag.MatchAlways, 1)
@@ -1649,10 +1649,6 @@ func (t *Test) GenerateSchema(name string, parentTag *mqswag.MeqaTag, schema mqs
 				}
 				return found[0], nil
 			}
-			if level != 0 {
-				fmt.Printf("null\n")
-			}
-			return nil, nil
 		}
 		return t.GenerateSchema(name, &mqswag.MeqaTag{referenceName, "", "", 0}, referredSchema, db, level)
 	}
