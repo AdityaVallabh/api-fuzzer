@@ -1187,9 +1187,14 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 		if !inLocal && inGlobal {
 			paramsMap[params.Value.Name] = globalParamsMap[params.Value.Name]
 		}
-		if _, ok := paramsMap[params.Value.Name]; ok {
-			t.AddBasicComparison(mqswag.GetMeqaTag(params.Value.Description), params.Value, paramsMap[params.Value.Name])
-			fmt.Print("provided\n")
+		if o, ok := paramsMap[params.Value.Name]; ok {
+			if o != nil {
+				t.AddBasicComparison(mqswag.GetMeqaTag(params.Value.Description), params.Value, paramsMap[params.Value.Name])
+				fmt.Print("provided\n")
+			} else {
+				delete(paramsMap, params.Value.Name)
+				fmt.Print("skipping\n")
+			}
 			continue
 		}
 		genParam, err = t.GenerateParameter(params.Value, t.db)
@@ -1198,28 +1203,7 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 	if err != nil {
 		return err
 	}
-	paramMaps := []*map[string]interface{}{&t.PathParams, &t.QueryParams, &t.HeaderParams, &t.FormParams}
-	for _, m := range paramMaps {
-		removeNulls(m)
-	}
-	if t.BodyParams != nil {
-		bodyMap, bodyIsMap := t.BodyParams.(map[string]interface{})
-		if bodyIsMap {
-			removeNulls(&bodyMap)
-			t.BodyParams = bodyMap
-		}
-	}
 	return nil
-}
-
-func removeNulls(inputMap *map[string]interface{}) {
-	filteredMap := make(map[string]interface{})
-	for k, v := range *inputMap {
-		if v != nil {
-			filteredMap[k] = v
-		}
-	}
-	*inputMap = filteredMap
 }
 
 func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
@@ -1589,8 +1573,12 @@ func (t *Test) generateObject(name string, parentTag *mqswag.MeqaTag, schema mqs
 		}
 		if t.suite.BodyParams != nil {
 			if o, ok := t.suite.BodyParams.(map[string]interface{})[k]; ok {
-				obj[k] = o
-				fmt.Println("found")
+				if o != nil {
+					obj[k] = o
+					fmt.Println("found")
+				} else {
+					fmt.Println("skipping")
+				}
 				continue
 			}
 		}
