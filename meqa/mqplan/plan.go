@@ -196,6 +196,7 @@ func (plan *TestPlan) InitFromFile(path string, db *mqswag.DB) error {
 	return nil
 }
 
+// ReadFails reads the .mqfails file and stores previous failures in OldFailuresMap and OtherFailures
 func (plan *TestPlan) ReadFails(path string) error {
 	f, err := os.Open(filepath.Join(path, MeqaFails))
 	defer f.Close()
@@ -211,6 +212,7 @@ func (plan *TestPlan) ReadFails(path string) error {
 		} else if err != nil {
 			return err
 		}
+		// Initialize the maps if they don't exist
 		if failures[v.Endpoint] == nil {
 			failures[v.Endpoint] = make(map[string]map[string]map[mqutil.FuzzValue]bool)
 		}
@@ -220,6 +222,7 @@ func (plan *TestPlan) ReadFails(path string) error {
 		if failures[v.Endpoint][v.Method][v.Field] == nil {
 			failures[v.Endpoint][v.Method][v.Field] = make(map[mqutil.FuzzValue]bool)
 		}
+		// Add failures matching current fuzzType to OldFailuresMap and rest to OtherFailuresMap
 		if plan.FuzzType == v.FuzzType || plan.FuzzType == mqutil.FuzzAll {
 			fuzzValue := mqutil.FuzzValue{Value: v.Value, FuzzType: v.FuzzType}
 			failures[v.Endpoint][v.Method][v.Field][fuzzValue] = true
@@ -298,21 +301,26 @@ func ReadMetadata(path string) map[string]interface{} {
 	return meta
 }
 
+// WriteFailures writes new failures to mqfails file
 func (plan *TestPlan) WriteFailures(path string) error {
 	flags := os.O_CREATE | os.O_WRONLY
 	var perms os.FileMode
 	if plan.Repro {
+		// Overwrite the file
 		flags |= os.O_TRUNC
 		perms = 0755
 	} else {
+		// Append new failures at the end
 		flags |= os.O_APPEND
 		perms = 0644
 	}
+	// Write/Append to mqfails
 	mqFails, err := os.OpenFile(filepath.Join(path, MeqaFails), flags, perms)
 	defer mqFails.Close()
 	if err != nil {
 		return err
 	}
+	// Write only new failures to new newFails
 	newFails, err := os.OpenFile(filepath.Join(path, NewFails), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	defer newFails.Close()
 	if err != nil {
@@ -322,6 +330,7 @@ func (plan *TestPlan) WriteFailures(path string) error {
 	d2 := json.NewEncoder(newFails)
 	meta := ReadMetadata(path)
 	if plan.Repro {
+		// Write the previous failures which we haven't tested (in this run) as it is
 		for _, v := range plan.OtherFailures {
 			if err := d1.Encode(v); err != nil {
 				return err
@@ -443,7 +452,8 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		if parentTest != nil {
 			dup.Name = parentTest.Name // always inherit the name
 		}
-		payloads, err := dup.Run(tc)
+		payloads, err := dup.Run(tc) // Run the test case
+		// Store new failures with their payloads
 		if payloads != nil && len(payloads) > 0 {
 			if plan.NewFailures == nil {
 				plan.NewFailures = make([]*mqswag.Payload, 0, len(payloads))
@@ -464,6 +474,7 @@ func (plan *TestPlan) Run(name string, parentTest *Test) (map[string]int, error)
 		} else {
 			resultCounts[mqutil.Passed]++
 		}
+		// If creation (POST) of an object fails, subsequent GET, PUT, DELETE tests will fail too, so just skip them
 		if dup.Method == mqswag.MethodPost && len(dup.PathParams) == 0 && dup.resp.RawResponse.StatusCode >= 300 {
 			fmt.Printf("Skipping %v tests...\n", len(tc.Tests)-i-1)
 			resultCounts[mqutil.Skipped] += len(tc.Tests) - i - 1

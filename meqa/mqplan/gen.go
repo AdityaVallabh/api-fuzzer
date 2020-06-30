@@ -189,11 +189,14 @@ func GeneratePathTestSuite(operations mqswag.NodeList, plan *TestPlan) {
 		currentTest := CreateTestFromOp(o, testId)
 		testSuite.Tests = append(testSuite.Tests, currentTest)
 		if OperationMatches(o, mqswag.MethodPost) && !strings.Contains(o.GetName(), idTag) {
+			// Store the creation test to use the object id later
 			createTest = currentTest
 		} else if strings.Contains(o.GetName(), idTag) {
+			// Perform tests using the id from the create request
 			currentTest.PathParams = make(map[string]interface{})
 			currentTest.PathParams[idTag] = fmt.Sprintf("{{%s.outputs.%s}}", createTest.Name, idTag)
 		}
+		// Add a negative test case after deleting the object to confirm delete worked
 		if OperationMatches(o, mqswag.MethodDelete) {
 			lastTest := testSuite.Tests[len(testSuite.Tests)-1]
 			// Find an operation that takes the same last path param.
