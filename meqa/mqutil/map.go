@@ -204,9 +204,9 @@ func InterfaceEquals(criteria interface{}, existing interface{}) bool {
 			// Everything in criteria should be in existing
 			cs := criteria.([]interface{})
 			es := existing.([]interface{})
-			for c := range cs {
+			for _, c := range cs {
 				var found bool
-				for e := range es {
+				for _, e := range es {
 					if InterfaceEquals(c, e) {
 						found = true
 						break
