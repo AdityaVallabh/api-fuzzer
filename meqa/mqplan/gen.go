@@ -188,10 +188,10 @@ func GeneratePathTestSuite(operations mqswag.NodeList, plan *TestPlan) {
 		testId++
 		currentTest := CreateTestFromOp(o, testId)
 		testSuite.Tests = append(testSuite.Tests, currentTest)
-		if OperationMatches(o, mqswag.MethodPost) && !strings.Contains(o.GetName(), idTag) {
+		if OperationMatches(o, mqswag.MethodPost) && !strings.Contains(o.GetName(), fmt.Sprintf("{%s}", idTag)) {
 			// Store the creation test to use the object id later
 			createTest = currentTest
-		} else if strings.Contains(o.GetName(), idTag) {
+		} else if strings.Contains(o.GetName(), fmt.Sprintf("{%s}", idTag)) {
 			// Perform tests using the id from the create request
 			currentTest.PathParams = make(map[string]interface{})
 			currentTest.PathParams[idTag] = fmt.Sprintf("{{%s.outputs.%s}}", createTest.Name, idTag)

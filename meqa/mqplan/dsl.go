@@ -322,7 +322,9 @@ func (t *Test) ResponseInDb(className string, associations map[string]map[string
 			numMiss++
 		}
 	}
-	if numMiss > 0 {
+	// Sometimes we GET an object directly without creating it.
+	// In such cases, client db will be empty and we don't want the test to fail.
+	if numMiss > 0 && len(dbArray) > 0 {
 		var found string
 		if len(dbArray) > 0 {
 			b, _ := json.Marshal(dbArray[0])
@@ -1231,10 +1233,7 @@ func (t *Test) ResolveParameters(tc *TestSuite) error {
 		}
 		paramsMap[params.Value.Name] = genParam
 	}
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func GetOperationByMethod(item *spec.PathItem, method string) *spec.Operation {
