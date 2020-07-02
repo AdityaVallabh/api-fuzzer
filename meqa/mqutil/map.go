@@ -201,7 +201,21 @@ func InterfaceEquals(criteria interface{}, existing interface{}) bool {
 	eKind := eType.Kind()
 	if cKind == reflect.Array || cKind == reflect.Slice {
 		if eKind == reflect.Array || eKind == reflect.Slice {
-			// We don't compare arrays
+			// Everything in criteria should be in existing
+			cs := criteria.([]interface{})
+			es := existing.([]interface{})
+			for _, c := range cs {
+				var found bool
+				for _, e := range es {
+					if InterfaceEquals(c, e) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return false
+				}
+			}
 			return true
 		}
 		return false

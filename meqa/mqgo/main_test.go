@@ -2,27 +2,35 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/AdityaVallabh/swagger_meqa/meqa/mqutil"
 )
 
-func TestMqgo(t *testing.T) {
-	var baseURL, username, password, apitoken string
-	wd, _ := os.Getwd()
-	meqaPath := filepath.Join(wd, "../../testdata")
-	swaggerPath := filepath.Join(meqaPath, "petstore_meqa.yml")
-	planPath := filepath.Join(meqaPath, "simple.yml")
-	resultPath := filepath.Join(meqaPath, "result.yml")
-	testToRun := "all"
-	baseURL, username, password, apitoken, dataset := "", "", "", "", ""
-	fuzzType := "none"
-	batchSize := 0
-	repro, verbose := false, false
-
-	mqutil.Logger = mqutil.NewFileLogger(filepath.Join(meqaPath, "mqgo.log"))
-	runMeqa(&meqaPath, &swaggerPath, &planPath, &resultPath, &testToRun, &username, &password, &apitoken, &baseURL, &dataset, &fuzzType, &batchSize, &repro, &verbose)
+func TestInterfaceEqual(t *testing.T) {
+	criteria := []interface{}{
+		[]interface{}{"str1", "2", 3, []interface{}{4, "5"}},
+		[]interface{}{"str1", "2", 3, []interface{}{4, "5"}},
+		map[string]interface{}{"k1": "v1", "k2": 2.00, "k3": []interface{}{}, "k4": map[string]interface{}{"nestedMap": "worksToo"}},
+		map[string]interface{}{"k1": "v1", "k2": 2.00, "k3": []interface{}{}, "k4": map[string]interface{}{"nestedMap": "7"}},
+	}
+	actual := []interface{}{
+		[]interface{}{"str1", "2", "3", []interface{}{4, "5"}, "extra"},
+		[]interface{}{"str1", "2", 3, []interface{}{"5"}}, // missing 4 in nested slice
+		map[string]interface{}{"k1": "v1", "k2": "2", "k3": []interface{}{"emptySliceIsASubset"}, "k4": map[string]interface{}{"nestedMap": "worksToo", "extra": 0}},
+		map[string]interface{}{"k1": "v1", "k2": "2", "k3": []interface{}{}, "k4": map[string]interface{}{"nestedMap": 7, "extra": 0}}, // int -> str is ok but not str -> int
+	}
+	expected := []bool{
+		true,
+		false,
+		true,
+		false,
+	}
+	for i := 0; i < len(expected); i++ {
+		if mqutil.InterfaceEquals(criteria[i], actual[i]) != expected[i] {
+			os.Exit(1)
+		}
+	}
 }
 
 func TestMain(m *testing.M) {
